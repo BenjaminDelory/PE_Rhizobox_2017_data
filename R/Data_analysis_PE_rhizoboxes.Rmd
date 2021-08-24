@@ -1,0 +1,923 @@
+---
+title: "Data_analysis_PE_rhizoboxes"
+author: "Benjamin Delory and Inés Alonso-Crespo"
+date: "06/08/2021"
+output: 
+  html_document:
+    toc: TRUE
+    toc_float: TRUE
+    fig_caption: TRUE
+    toc_depth: 4
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.align = "center")
+```
+
+## Load R packages
+
+```{r Load R packages, message=FALSE, warning=FALSE}
+library(ggplot2)
+library(ggpubr)
+library(lme4)
+library(emmeans)
+library(lmerTest)
+library(Hmisc)
+library(ggeffects)
+library(MASS)
+library(viridis)
+library(sp)
+library(stringr)
+```
+
+## Create function to calculate MRD and D90 from root biomass data
+
+The `vrd` function calculates the following parameters for each rhizobox:
+
+* **RDWtotal**: the total root dry weight (mg) 
+* **MRD**: mean rooting depth (cm) following Mommer et al (2010) [Unveiling below-ground species abundance in a biodiversity experiment: a test of vertical niche differentiation among grassland species](https://besjournals.onlinelibrary.wiley.com/doi/full/10.1111/j.1365-2745.2010.01702.x). *Journal of Ecology*, 98, 1117-1127. 
+* **beta**: parameter of the asymptotic equation used to model the relationship between the cumulative proportion of root biomass (C) and soil depth (d). A description of the model can be found in Gale and Grigal (1987). [Vertical root distributions of northern tree species in relation to successional status](https://www.nrcresearchpress.com/doi/10.1139/x87-131#.Xyp3UjVS-70). *Can J For Res*, 17, 829-834.  
+$$C=1-\beta^d$$ 
+* **D90**: depth value (in cm) above which 90% of the root biomass lies.
+$$D90=\frac{log(0.1)}{log(\beta)}$$
+
+```{r Create vrd function, message=FALSE, warning=FALSE}
+vrd<-function(x, data, depth, replicate, D=90){
+  
+  #x is a formula: response~factor
+  #data is a data frame with the raw data
+  #depth is the name of the column with maxDepth values (character string)
+  #replicate is the name of the column with replicate IDs (character string)
+  #D is the depth threshold (in %)
+  
+  if (class(x)=="formula"){
+    
+    response<-as.character(x[[2]])
+    factor<-as.character(x[[3]])}
+  
+  res<-aggregate(data[,response], by=list(Treatment=data[,factor], Rz=data[,"Rz"], Replicate=data[,replicate]), sum)
+  meanRDW<-aggregate(data[,response], by=list(Treatment=data[,factor], Rz=data[,"Rz"], Replicate=data[,replicate]), mean)
+  sdRDW<-aggregate(data[,response], by=list(Treatment=data[,factor], Rz=data[,"Rz"], Replicate=data[,replicate]), sd)
+  colnames(res)[4]<-"RDWtotal"
+  res$MRD<-NA
+  res$beta<-NA
+  res<-res[order(res$Treatment),]
+  
+  for (i in 1:nrow(res)){
+    
+    sub<-data[data[,factor]==res$Treatment[i] & data[,replicate]==res$Replicate[i], c(factor, replicate, depth, response)]
+    sub[,factor]<-as.character(sub[,factor])
+    sub[nrow(sub)+1,]<-c(sub[1,factor], sub[1,replicate], 0, 0)
+    sub[,response]<-as.numeric(sub[,response])
+    sub[,depth]<-as.numeric(sub[,depth])
+    sub<-sub[order(sub[,depth]),]
+    sub[,response]<-cumsum(sub[,response])/sum(sub[,response])
+    
+    r<-sub[,response]
+    d<-sub[,depth]
+    
+    model<-nls(r~1-beta^d, start=list(beta=1)) #Fit model
+    
+    res$beta[i]<-coef(model)
+    
+    res$MRD[i]<-sum((sub[,response]/sum(sub[,response]))*(sub[,depth]-5))}
+  
+  if (D<100) {res[,paste("D", D, sep="")]<-log(1-(D/100))/log(res$beta)} else {stop("D must be smaller than 100")}
+  
+  res$invCV<-meanRDW$x/sdRDW$x
+  
+  return(res[,c(2,1,3:8)])}
+```
+
+## Create function to calculate unstandardised effect sizes
+
+`bootstrap_ES` is an R function calculating unstandardised effect sizes for each treatment and their compatibility intervals (bootstrap resampling using the percentile method) for one response variable. The number of bootstrap resamples is set using `n_perm` (default to 20000). The argument `plot` can be used to create a histogram displaying the results.
+
+This function is a modified version of the [function coded by Masahiro Ryo](https://github.com/masahiroryo/joint-ES-estimate/blob/master/20190801_analysis_v2.0.R) for the following paper: [Rillig et al (2019). The role of multiple global change factors in driving soil functions and microbial biodiversity. Science, 366, 886-890](https://science.sciencemag.org/content/366/6467/886).
+
+```{r bootstrap_ES, message=FALSE, warning=FALSE}
+bootstrap_ES <- function(response, data=data, contr, n_perm = 20000, plot=FALSE){
+  
+  #response is the response variable
+  #data is a data frame with the raw data
+  #contr is a vector of contrasts (factor level separated by "/", no space)
+  
+  summary <- data.frame(Contrast=NA, lowCI=NA, ES=NA, highCI=NA, relES=NA)
+  alles <- data.frame()
+  row<-0
+  
+    for (c in contr){
+      
+      split<-strsplit(c, "/")[[1]]
+      
+      bs <- numeric(0)
+      population_1 <- na.omit(data[data$Treatment==split[1], response])
+      population_2 <- na.omit(data[data$Treatment==split[2], response])
+      size_1 <- length(population_1)
+      size_2 <- length(population_2)
+      
+      if (size_1==0|size_2==0){} else {
+        
+        row<-row+1
+        
+        set.seed(123) #For reproducibility
+        
+        for (i in c(1:n_perm)){
+          
+          k_1 <- mean(sample(population_1, size_1, replace = T))
+          k_2 <- mean(sample(population_2, size_2, replace = T))
+          bs <- append(bs, k_1-k_2)}
+      
+      summary[row,1] <- c
+      summary[row,2:4] <- c(quantile(bs, .025), mean(population_1)-mean(population_2), quantile(bs, .975))
+      summary[row,5] <- 100*(mean(population_1)-mean(population_2))/mean(population_2)
+      alles<-rbind(alles, data.frame(Contrast=rep(c, n_perm), ES=bs))}
+  
+      if (plot==TRUE){
+        hist(bs, main=c, xlab=paste("ES", response, sep=" "))
+        points(mean(population_1)-mean(population_2), 0, pch=16, cex=2, col="red")
+        segments(x0=quantile(bs, .025), y0=0, x1=quantile(bs, .975), y1=0, lwd=2, col="red")}}
+  
+  return(list(summary=summary, bootstrap=alles))}
+```
+
+## Analysis of shoot biomass data
+
+### Load data
+
+```{r Load data, message=FALSE, warning=FALSE}
+shoot <- read.delim("Z:/Poem/Rhizoboxes/0_Rz_experiment_data/Data/Data_shoot_biomass_RZ_PE_2017.txt")
+shoot<-as.data.frame(shoot)
+shoot$Treatment<-as.factor(shoot$Treatment)
+
+#Convert data in mg
+shoot[,4:16]<-shoot[,4:16]*1000
+
+#Remove rhizoboxes where Lotus corniculatus did not grow
+shoot<-na.omit(shoot)
+
+#Prepare data for ggplot
+shoot1<-data.frame(Treatment=rep(shoot$Treatment, 9),
+                   Replicate=rep(shoot$Replicate, 9),
+                   Species=rep(c("Trifolium pratense", "Lotus corniculatus", "Medicago sativa", "Festuca rubra", "Holcus lanatus", "Dactylis glomerata", "Centaurea jacea", "Leucanthemum vulgare", "Achillea millefolium"), each=31),
+                   SDW=as.vector(as.matrix(shoot[,4:12])))
+```
+
+### Plot shoot biomass for each species
+
+```{r Plot shoot biomass per species, fig.height=6.69, fig.width=7.09, message=FALSE, warning=FALSE}
+shoot1$Treatment<-factor(shoot1$Treatment, levels=c("Sync1", "F-first", "G-first", "L-first", "Sync2"))
+shoot1$Species<-factor(shoot1$Species, levels=c("Achillea millefolium", "Centaurea jacea", "Leucanthemum vulgare", "Dactylis glomerata", "Festuca rubra", "Holcus lanatus", "Lotus corniculatus", "Medicago sativa","Trifolium pratense"))
+                                                
+colors<-c("#999999", "#56B4E9", "#E69F00", "#009E73", "black")
+
+(p1<-ggplot(shoot1, aes(x=Treatment, y=SDW, color=Treatment))+
+      facet_wrap(~Species, scales="free_y")+
+      geom_jitter(shape=1, width=0.15)+
+      stat_summary(fun.data="mean_cl_boot", size=0.5)+
+      theme_bw()+
+      theme(legend.position = "none")+
+      ylab("Shoot dry weight (mg)")+
+      xlab("")+
+      theme(axis.text=element_text(size=10, color="black"),
+            strip.text=element_text(face="italic", size=10),
+            axis.title.y=element_text(margin=margin(r=10)),
+            axis.text.x = element_text(angle=90, vjust=0.5))+
+      scale_color_manual(values=colors))
+
+#ggsave("Figure3.tiff", p1, dpi=1000, compression="lzw", width=18, height=17, units="cm")
+```
+
+### Plot total shoot biomass
+
+```{r Plot total shoot biomass, message=FALSE, warning=FALSE, fig.height=3.54, fig.width=3.54}
+shoot$Treatment<-factor(shoot$Treatment, levels=c("Sync1", "F-first", "G-first", "L-first", "Sync2"))
+colors<-c("#999999", "#56B4E9", "#E69F00", "#009E73", "black")
+
+(p2<-ggplot(shoot, aes(x=Treatment, y=Total, color=Treatment)) + 
+    geom_jitter(shape=1, width=0.15) + 
+    labs(x = "", y = "Total shoot dry weight (mg)") +
+    theme_bw()+
+    stat_summary(fun.data="mean_cl_boot", size=0.5)+
+    scale_color_manual(values=colors)+
+    theme(legend.position = "none",
+          axis.text=element_text(size=10, color="black"),
+          axis.title.y = element_text(margin=margin(t=0,b=0,r=10,l=0)),
+          axis.text.x=element_text(angle=0)))
+
+#ggsave("Total_shoot_productivity.tiff", p2, dpi=1000, compression="lzw", width=9, height=9, units="cm")
+```
+
+### Effect sizes
+
+#### *Achillea millefolium*
+
+```{r, fig.width=4, fig.height=4}
+es.Am<-bootstrap_ES(response="Am", data=shoot, contr=c("F-first/Sync1", "G-first/Sync2", "L-first/Sync2", "G-first/L-first"), plot=FALSE)
+knitr::kable(es.Am$summary)
+
+ggplot(es.Am$bootstrap)+
+  geom_hline(yintercept = 0)+
+  stat_ydensity(aes(x=Contrast, y=ES), fill="grey50", color=adjustcolor("white", alpha.f = 0.1), alpha=0.3)+
+  geom_segment(data=es.Am$summary, aes(x=Contrast, xend=Contrast, y=lowCI, yend=highCI), color="black", size=0.5)+
+  geom_point(data=es.Am$summary, aes(x=Contrast, y=ES), shape=16, color="black")+
+  theme_bw()+
+  xlab("")+
+  ylab("ES SDW (mg)")+
+  theme(axis.title=element_text(color="black", face="plain"),
+  axis.title.y=element_text(margin = margin(t = 0, r = 5, b = 0, l = 0)),
+  axis.title.x=element_blank(),
+  axis.text=element_text(color="black"))
+```
+
+#### *Centaurea jacea*
+
+```{r, fig.width=4, fig.height=4}
+es.Cj<-bootstrap_ES(response="Cj", data=shoot, contr=c("F-first/Sync1", "G-first/Sync2", "L-first/Sync2", "G-first/L-first"), plot=FALSE)
+knitr::kable(es.Cj$summary)
+
+ggplot(es.Cj$bootstrap)+
+  geom_hline(yintercept = 0)+
+  stat_ydensity(aes(x=Contrast, y=ES), fill="grey50", color=adjustcolor("white", alpha.f = 0.1), alpha=0.3)+
+  geom_segment(data=es.Cj$summary, aes(x=Contrast, xend=Contrast, y=lowCI, yend=highCI), color="black", size=0.5)+
+  geom_point(data=es.Cj$summary, aes(x=Contrast, y=ES), shape=16, color="black")+
+  theme_bw()+
+  xlab("")+
+  ylab("ES SDW (mg)")+
+  theme(axis.title=element_text(color="black", face="plain"),
+  axis.title.y=element_text(margin = margin(t = 0, r = 5, b = 0, l = 0)),
+  axis.title.x=element_blank(),
+  axis.text=element_text(color="black"))
+```
+
+#### *Leucanthemum vulgare*
+
+```{r, fig.width=4, fig.height=4}
+es.Lv<-bootstrap_ES(response="Lv", data=shoot, contr=c("F-first/Sync1", "G-first/Sync2", "L-first/Sync2", "G-first/L-first"), plot=FALSE)
+knitr::kable(es.Lv$summary)
+
+ggplot(es.Lv$bootstrap)+
+  geom_hline(yintercept = 0)+
+  stat_ydensity(aes(x=Contrast, y=ES), fill="grey50", color=adjustcolor("white", alpha.f = 0.1), alpha=0.3)+
+  geom_segment(data=es.Lv$summary, aes(x=Contrast, xend=Contrast, y=lowCI, yend=highCI), color="black", size=0.5)+
+  geom_point(data=es.Lv$summary, aes(x=Contrast, y=ES), shape=16, color="black")+
+  theme_bw()+
+  xlab("")+
+  ylab("ES SDW (mg)")+
+  theme(axis.title=element_text(color="black", face="plain"),
+  axis.title.y=element_text(margin = margin(t = 0, r = 5, b = 0, l = 0)),
+  axis.title.x=element_blank(),
+  axis.text=element_text(color="black"))
+```
+
+#### *Dactylis glomerata*
+
+```{r, fig.width=4, fig.height=4}
+es.Dg<-bootstrap_ES(response="Dg", data=shoot, contr=c("G-first/Sync1", "F-first/Sync2", "L-first/Sync2", "F-first/L-first"), plot=FALSE)
+knitr::kable(es.Dg$summary)
+
+ggplot(es.Dg$bootstrap)+
+  geom_hline(yintercept = 0)+
+  stat_ydensity(aes(x=Contrast, y=ES), fill="grey50", color=adjustcolor("white", alpha.f = 0.1), alpha=0.3)+
+  geom_segment(data=es.Dg$summary, aes(x=Contrast, xend=Contrast, y=lowCI, yend=highCI), color="black", size=0.5)+
+  geom_point(data=es.Dg$summary, aes(x=Contrast, y=ES), shape=16, color="black")+
+  theme_bw()+
+  xlab("")+
+  ylab("ES SDW (mg)")+
+  theme(axis.title=element_text(color="black", face="plain"),
+  axis.title.y=element_text(margin = margin(t = 0, r = 5, b = 0, l = 0)),
+  axis.title.x=element_blank(),
+  axis.text=element_text(color="black"))
+```
+
+#### *Festuca rubra*
+
+```{r, fig.width=4, fig.height=4}
+es.Fr<-bootstrap_ES(response="Fr", data=shoot, contr=c("G-first/Sync1", "F-first/Sync2", "L-first/Sync2", "F-first/L-first"), plot=FALSE)
+knitr::kable(es.Fr$summary)
+
+ggplot(es.Fr$bootstrap)+
+  geom_hline(yintercept = 0)+
+  stat_ydensity(aes(x=Contrast, y=ES), fill="grey50", color=adjustcolor("white", alpha.f = 0.1), alpha=0.3)+
+  geom_segment(data=es.Fr$summary, aes(x=Contrast, xend=Contrast, y=lowCI, yend=highCI), color="black", size=0.5)+
+  geom_point(data=es.Fr$summary, aes(x=Contrast, y=ES), shape=16, color="black")+
+  theme_bw()+
+  xlab("")+
+  ylab("ES SDW (mg)")+
+  theme(axis.title=element_text(color="black", face="plain"),
+  axis.title.y=element_text(margin = margin(t = 0, r = 5, b = 0, l = 0)),
+  axis.title.x=element_blank(),
+  axis.text=element_text(color="black"))
+```
+
+#### *Holcus lanatus*
+
+```{r, fig.width=4, fig.height=4}
+es.Hl<-bootstrap_ES(response="Hl", data=shoot, contr=c("G-first/Sync1", "F-first/Sync2", "L-first/Sync2", "F-first/L-first"), plot=FALSE)
+knitr::kable(es.Hl$summary)
+
+ggplot(es.Hl$bootstrap)+
+  geom_hline(yintercept = 0)+
+  stat_ydensity(aes(x=Contrast, y=ES), fill="grey50", color=adjustcolor("white", alpha.f = 0.1), alpha=0.3)+
+  geom_segment(data=es.Hl$summary, aes(x=Contrast, xend=Contrast, y=lowCI, yend=highCI), color="black", size=0.5)+
+  geom_point(data=es.Hl$summary, aes(x=Contrast, y=ES), shape=16, color="black")+
+  theme_bw()+
+  xlab("")+
+  ylab("ES SDW (mg)")+
+  theme(axis.title=element_text(color="black", face="plain"),
+  axis.title.y=element_text(margin = margin(t = 0, r = 5, b = 0, l = 0)),
+  axis.title.x=element_blank(),
+  axis.text=element_text(color="black"))
+```
+
+#### *Lotus corniculatus*
+
+```{r, fig.width=4, fig.height=4}
+es.Lc<-bootstrap_ES(response="Lc", data=shoot, contr=c("L-first/Sync1", "F-first/Sync2", "G-first/Sync2", "F-first/G-first"), plot=FALSE)
+knitr::kable(es.Lc$summary)
+
+ggplot(es.Lc$bootstrap)+
+  geom_hline(yintercept = 0)+
+  stat_ydensity(aes(x=Contrast, y=ES), fill="grey50", color=adjustcolor("white", alpha.f = 0.1), alpha=0.3)+
+  geom_segment(data=es.Lc$summary, aes(x=Contrast, xend=Contrast, y=lowCI, yend=highCI), color="black", size=0.5)+
+  geom_point(data=es.Lc$summary, aes(x=Contrast, y=ES), shape=16, color="black")+
+  theme_bw()+
+  xlab("")+
+  ylab("ES SDW (mg)")+
+  theme(axis.title=element_text(color="black", face="plain"),
+  axis.title.y=element_text(margin = margin(t = 0, r = 5, b = 0, l = 0)),
+  axis.title.x=element_blank(),
+  axis.text=element_text(color="black"))
+```
+
+#### *Medicago sativa*
+
+```{r, fig.width=4, fig.height=4}
+es.Ms<-bootstrap_ES(response="Ms", data=shoot, contr=c("L-first/Sync1", "F-first/Sync2", "G-first/Sync2", "F-first/G-first"), plot=FALSE)
+knitr::kable(es.Ms$summary)
+
+ggplot(es.Ms$bootstrap)+
+  geom_hline(yintercept = 0)+
+  stat_ydensity(aes(x=Contrast, y=ES), fill="grey50", color=adjustcolor("white", alpha.f = 0.1), alpha=0.3)+
+  geom_segment(data=es.Ms$summary, aes(x=Contrast, xend=Contrast, y=lowCI, yend=highCI), color="black", size=0.5)+
+  geom_point(data=es.Ms$summary, aes(x=Contrast, y=ES), shape=16, color="black")+
+  theme_bw()+
+  xlab("")+
+  ylab("ES SDW (mg)")+
+  theme(axis.title=element_text(color="black", face="plain"),
+  axis.title.y=element_text(margin = margin(t = 0, r = 5, b = 0, l = 0)),
+  axis.title.x=element_blank(),
+  axis.text=element_text(color="black"))
+```
+
+#### *Trifolium pratense*
+
+```{r, fig.width=4, fig.height=4}
+es.Tp<-bootstrap_ES(response="Tp", data=shoot, contr=c("L-first/Sync1", "F-first/Sync2", "G-first/Sync2", "G-first/F-first"), plot=FALSE)
+knitr::kable(es.Tp$summary)
+
+ggplot(es.Tp$bootstrap)+
+  geom_hline(yintercept = 0)+
+  stat_ydensity(aes(x=Contrast, y=ES), fill="grey50", color=adjustcolor("white", alpha.f = 0.1), alpha=0.3)+
+  geom_segment(data=es.Tp$summary, aes(x=Contrast, xend=Contrast, y=lowCI, yend=highCI), color="black", size=0.5)+
+  geom_point(data=es.Tp$summary, aes(x=Contrast, y=ES), shape=16, color="black")+
+  theme_bw()+
+  xlab("")+
+  ylab("ES SDW (mg)")+
+  theme(axis.title=element_text(color="black", face="plain"),
+  axis.title.y=element_text(margin = margin(t = 0, r = 5, b = 0, l = 0)),
+  axis.title.x=element_blank(),
+  axis.text=element_text(color="black"))
+```
+
+#### Total shoot biomass
+
+```{r, fig.width=4, fig.height=4}
+es.Total<-bootstrap_ES(response="Total", data=shoot, contr=c("F-first/G-first", "F-first/L-first", "G-first/L-first"), plot=FALSE)
+knitr::kable(es.Total$summary)
+
+ggplot(es.Total$bootstrap)+
+  geom_hline(yintercept = 0)+
+  stat_ydensity(aes(x=Contrast, y=ES), fill="grey50", color=adjustcolor("white", alpha.f = 0.1), alpha=0.3)+
+  geom_segment(data=es.Total$summary, aes(x=Contrast, xend=Contrast, y=lowCI, yend=highCI), color="black", size=0.5)+
+  geom_point(data=es.Total$summary, aes(x=Contrast, y=ES), shape=16, color="black")+
+  theme_bw()+
+  xlab("")+
+  ylab("ES SDW (mg)")+
+  theme(axis.title=element_text(color="black", face="plain"),
+  axis.title.y=element_text(margin = margin(t = 0, r = 5, b = 0, l = 0)),
+  axis.title.x=element_blank(),
+  axis.text=element_text(color="black"))
+```
+
+## Analysis of root biomass data
+
+### Load root biomass data
+
+```{r Load root biomass data}
+root <- read.delim("Z:/Poem/Rhizoboxes/0_Rz_experiment_data/Data/Data_root_biomass_RZ_PE_2017.txt")
+root<-as.data.frame(root)
+root$Treatment<-as.factor(root$Treatment)
+
+root$RDW<-root$RDW*1000 #Convert to mg
+root<-root[-which(root$Rz==137),] #Root biomass in layer 5 much greater than in layers 4 and 3 (this might be due to a data encoding mistake)
+```
+
+### Plot total root productivity
+
+```{r Plot total root productivity, message=FALSE, warning=FALSE, fig.height=3.54, fig.width=3.54}
+root$Treatment<-factor(root$Treatment, levels=c("Sync1", "F-first", "G-first", "L-first", "Sync2"))
+colors<-c("#999999", "#56B4E9", "#E69F00", "#009E73", "black")
+
+root1<-vrd(x=RDW~Treatment, data=root, depth="maxDepth", replicate="Replicate", D=90)
+
+(p3<-ggplot(root1, aes(x=Treatment, y=RDWtotal, color=Treatment)) + 
+      geom_jitter(shape=1, width=0.1) + 
+      labs(x = "", y = "Total root dry weight (mg)") +
+      theme_bw()+
+      stat_summary(fun.data="mean_cl_boot", size=0.5)+
+      scale_color_manual(values=colors)+
+      theme(legend.position = "none",
+            axis.text=element_text(size=10, color="black"),
+            axis.title.y = element_text(margin=margin(t=0,b=0,r=10,l=0)),
+            axis.text.x=element_text(angle=0))+
+      scale_y_continuous(limits=c(0,300), breaks=c(0,50,100,150,200,250,300)))
+
+(p<-ggplot(root1, aes(x=Treatment, y=invCV, color=Treatment)) + 
+      geom_jitter(shape=1, width=0.1) + 
+      labs(x = "", y = "Community inverse CV") +
+      theme_bw()+
+      stat_summary(fun.data="mean_cl_boot", size=0.5)+
+      scale_color_manual(values=colors)+
+      theme(legend.position = "none",
+            axis.text=element_text(size=10, color="black"),
+            axis.title.y = element_text(margin=margin(t=0,b=0,r=10,l=0)),
+            axis.text.x=element_text(angle=0)))
+
+#ggsave("Total_root_productivity.tiff", p3, dpi=1000, compression="lzw", width=9, height=9, units="cm")
+```
+
+### Effect sizes
+
+#### Total root productivity
+
+```{r, fig.width=4, fig.height=4}
+es.rdw<-bootstrap_ES(response="RDWtotal", data=root1, contr=c("F-first/G-first", "F-first/L-first", "G-first/L-first"), plot=FALSE)
+knitr::kable(es.rdw$summary)
+
+ggplot(es.rdw$bootstrap)+
+  geom_hline(yintercept = 0)+
+  stat_ydensity(aes(x=Contrast, y=ES), fill="grey50", color=adjustcolor("white", alpha.f = 0.1), alpha=0.3)+
+  geom_segment(data=es.rdw$summary, aes(x=Contrast, xend=Contrast, y=lowCI, yend=highCI), color="black", size=0.5)+
+  geom_point(data=es.rdw$summary, aes(x=Contrast, y=ES), shape=16, color="black")+
+  theme_bw()+
+  xlab("")+
+  ylab("ES RDW (mg)")+
+  theme(axis.title=element_text(color="black", face="plain"),
+  axis.title.y=element_text(margin = margin(t = 0, r = 5, b = 0, l = 0)),
+  axis.title.x=element_blank(),
+  axis.text=element_text(color="black"))
+```
+
+#### MRD biomass
+
+```{r, fig.width=4, fig.height=4}
+es.mrdb<-bootstrap_ES(response="MRD", data=root1, contr=c("F-first/G-first", "F-first/L-first", "G-first/L-first"), plot=FALSE)
+knitr::kable(es.mrdb$summary)
+
+ggplot(es.mrdb$bootstrap)+
+  geom_hline(yintercept = 0)+
+  stat_ydensity(aes(x=Contrast, y=ES), fill="grey50", color=adjustcolor("white", alpha.f = 0.1), alpha=0.3)+
+  geom_segment(data=es.mrdb$summary, aes(x=Contrast, xend=Contrast, y=lowCI, yend=highCI), color="black", size=0.5)+
+  geom_point(data=es.mrdb$summary, aes(x=Contrast, y=ES), shape=16, color="black")+
+  theme_bw()+
+  xlab("")+
+  ylab("ES MRD (cm)")+
+  theme(axis.title=element_text(color="black", face="plain"),
+  axis.title.y=element_text(margin = margin(t = 0, r = 5, b = 0, l = 0)),
+  axis.title.x=element_blank(),
+  axis.text=element_text(color="black"))
+```
+
+### Create combined plot for aboveground and belowground productivity (figure 2)
+
+```{r Create figure 2, message=FALSE, warning=FALSE, fig.height=3.54, fig.width=7.08}
+(figure2<-ggarrange(p2, p3, align="hv", nrow=1, ncol=2, labels=c("(a)", "(b)"), font.label=list(size=12)))
+#ggsave("Figure2.tiff", figure2, dpi=1000, compression="lzw", width=18, height=9, units="cm")
+```
+
+### Plot root biomass distribution in soil layers
+
+```{r Plot root biomass distribution, message=FALSE, warning=FALSE, fig.width=7.09, fig.height=5.12}
+
+supp.labs<-c("0-10 cm", "10-20 cm", "20-30 cm", "30-40 cm", "40-50 cm", ">50 cm")
+names(supp.labs)<-c("0-10 cm", "10-20 cm", "20-30 cm", "30-40 cm", "40-50 cm", "50-60 cm")
+  
+(p4<-ggplot(root, aes(x=Treatment, y=RDW, color=Treatment)) + 
+    geom_jitter(shape=1, width=0.1) + 
+    labs(x = "", y = "Total root dry weight (mg)") +
+    theme_bw()+
+    stat_summary(fun.data="mean_cl_boot", size=0.5)+
+    scale_color_manual(values=colors)+
+    theme(legend.position = "none",
+          axis.text=element_text(color="black"),
+          axis.title.y = element_text(margin=margin(t=0,b=0,r=10,l=0)),
+          axis.text.x=element_text(size=10, angle=90),
+          axis.text.y=element_text(size=10),
+          strip.text = element_text(size=10))+
+    facet_wrap(~Layer, scales="free_y",
+               labeller=labeller(Layer=supp.labs)))
+
+#ggsave("Vertical_root_distribution.tiff", p4, dpi=1000, compression="lzw", width=18, height=13, units="cm")
+
+```
+
+### Root biomass distribution in the soil
+
+Because some layers did not contain any roots (RDW=0), we had zero-inflated continuous data ($Y \ge 0$). Data were analysed using a hurdle model combining a gamma GLMM and a Bernoulli GLMM (zero-altered gamma model or ZAG model). In a ZAG model, zeroes are generated by the binary part of the model (1 or 0). Non-zero data (that occur that roots are present in a layer) are modeled using a second (continuous) distribution (gamma in this case). The hurdle model was fitted according to Chapter 7 in Zuur and Ieno (2016) [Beginner's guide to zero-inflated models with R](http://highstat.com/index.php/beginner-s-guide-to-zero-inflated-models). Highland Statistics Ltd. 
+
+#### Fit gamma component of hurdle model
+
+```{r Fit gamma model, message=FALSE, warning=FALSE}
+root$Depth<-root$maxDepth-5
+
+root.pos<-subset(root, RDW>0) #Only select positive RDW values
+root.pos$Rz<-factor(root.pos$Rz)
+
+#Fit GLMM with gamma distribution
+H1<-glmmPQL(fixed=RDW~Depth*Treatment, random=~1|Rz, data=root.pos, family=Gamma(link="log"))
+summary(H1)
+
+#Model validation
+E1<-resid(H1, type="pearson")
+F1<-fitted(H1, type="response")
+plot(F1, E1, xlab="Fitted values", ylab="Residuals"); abline(h=0)
+boxplot(E1~root.pos$Treatment, xlab="", ylab="Residuals")
+boxplot(E1~root.pos$Depth, xlab="Depth (cm)", ylab="Residuals")
+
+#Make predictions
+pred.mm <- data.frame(Depth=rep(seq(5,55,by=0.1), 5), Treatment=rep(unique(root$Treatment), each=501))
+pred.mm$Pred <- predict(H1, newdata=pred.mm, type="response", level=0)
+
+#Plot GLMM fit
+(p5<-ggplot(pred.mm) +
+    geom_jitter(data=root.pos, aes(x=Depth, y=RDW, colour=Treatment), width=1, shape=1) +
+    geom_line(aes(x = Depth, y = Pred, color=Treatment), size=1) +
+    ylab("Root dry weight (mg)")+
+    xlab("Depth (cm)")+ 
+    theme_bw()+
+    theme(legend.title=element_blank(),
+          axis.text=element_text(size=10, color="black"),
+          axis.title.y = element_text(margin=margin(r=10)),
+          axis.title.x = element_text(margin=margin(t=10)))+
+    scale_color_manual(values=colors))
+
+#Plot GLMM fit
+#One curve for each rhizobox
+(p6<-ggplot(root.pos) +
+    geom_jitter(aes(x=Depth, y=RDW, colour=Treatment), width=1, shape=1) +
+    geom_line(data=cbind(root.pos, Pred=predict(H1, type="response")), aes(x = Depth, y = Pred, color=Treatment, group=Rz), size=1) +
+    ylab("Root dry weight (mg)")+
+    xlab("Depth (cm)")+ 
+    theme_bw()+
+    theme(legend.title=element_blank(),
+          axis.text=element_text(size=10, color="black"),
+          axis.title.y = element_text(margin=margin(r=10)),
+          axis.title.x = element_text(margin=margin(t=10)))+
+    scale_color_manual(values=colors))
+```
+ 
+#### Fit binomial component of hurdle model
+
+```{r Fit binomial model, message=FALSE, warning=FALSE}
+root$RDW.01<-as.numeric(root$RDW > 0)
+root$Rz<-factor(root$Rz)
+root$sDepth<-scale(root$Depth, center=TRUE, scale=TRUE)
+
+#Fit GLMM with a binomial distribution
+H2<-glmmPQL(fixed=RDW.01~Depth*Treatment, random=~1|Rz, data=root, family=binomial(link="logit"))
+summary(H2)
+
+#Make predictions
+pred.mm <- data.frame(Depth=rep(seq(5,55,by=0.1), 5),
+                      Treatment=rep(unique(root$Treatment), each=501))
+pred.mm$Pred <- predict(H2, newdata=pred.mm, type="response", level=0)
+
+#Plot GLMM fit
+(p7<-ggplot(pred.mm) +
+    geom_jitter(data=root, aes(x=Depth, y=RDW.01, colour=Treatment), height=0.2, width=1, shape=1) +
+    geom_line(aes(x = Depth, y = Pred, color=Treatment), size=1) +
+    ylab("Probability that roots are present")+
+    xlab("Depth (cm)")+ 
+    theme_bw()+
+    theme(legend.title=element_blank(),
+          axis.text=element_text(size=10, color="black"),
+          axis.title.y = element_text(margin=margin(r=10)),
+          axis.title.x = element_text(margin=margin(t=10)))+
+    scale_color_manual(values=colors))
+```
+
+#### Merge gamma and binomial components
+
+```{r Create hurdle model, message=FALSE, warning=FALSE, fig.height=3.94, fig.width=3.94}
+beta<-fixef(H1) #Extract regression coefficients of Gamma GLMM
+gamma<-fixef(H2) #Extract regression coefficients of Binomial GLMM
+
+#Create new data for predictions
+newdata <- expand.grid(Depth = seq(5, 55, by = 0.1),
+                       Treatment = levels(root$Treatment))
+
+X<-model.matrix(~Depth*Treatment, data=newdata)
+
+mu <- exp(X %*% beta)
+Pi  <- exp(X %*% gamma) / (1 + exp(X %*% gamma))
+
+#Get predictions for Hurdle model
+newdata$PredZAG<-Pi * mu
+
+#Plot hurdle model fit
+(p8<-ggplot(root) +
+    geom_jitter(data=root, aes(x=Depth, y=RDW, colour=Treatment), width=1, shape=1) +
+    geom_line(data=newdata, aes(x = Depth, y = PredZAG, color=Treatment), size=0.8) +
+    ylab("Root dry weight (mg)")+
+    xlab("Depth (cm)")+ 
+    theme_bw()+
+    theme(legend.title=element_blank(),
+          legend.position=c(0.85,0.75),
+          legend.text=element_text(size=8),
+          axis.text=element_text(size=10, color="black"),
+          axis.title.y = element_text(margin=margin(r=10)),
+          axis.title.x = element_text(margin=margin(t=10)))+
+    scale_color_manual(values=colors))
+
+#ggsave("Figure4.tiff", p8, dpi=1000, compression="lzw", width=10, height=9.5, units="cm")
+```
+
+## Analysis of root distribution over time
+
+### Load RootPainter data
+
+```{r Load RootPainter data, message=FALSE, warning=FALSE}
+root.depth <- read.csv("Z:/Poem/Rhizoboxes/Backup_RootPainter/drive_rp_sync/projects/PE_rhizotrons_2017_1/results/segmentations/results.csv")
+
+ID <- read.delim("Z:/Poem/Rhizoboxes/0_Rz_experiment_data/Data/Image_RZ.txt")
+TIME <- read.delim("Z:/Poem/Rhizoboxes/0_Rz_experiment_data/Data/Date_TimePoint.txt")
+
+filenames<-sapply(str_split(as.character(root.depth$image), pattern="-"), function(x){return(x[5])})
+filenames<-as.numeric(sapply(str_split(filenames, pattern="\\."), function(x){return(x[1])}))
+
+root.depth$Date<-sapply(str_split(as.character(root.depth$image), pattern="-"), function(x){
+  return(paste(x[1], x[2], x[3], sep="-"))})
+
+root.depth$imageID<-filenames
+root.depth$Rz<-ID$RZ[match(filenames, ID$Image)]
+root.depth$Time<-TIME$Day[match(root.depth$Date, TIME$Date)]
+
+root.depth<-root.depth[order(root.depth$Rz, root.depth$Time),]
+
+#Add treatment column
+root.depth$Treatment<-root1$Treatment[match(root.depth$Rz, root1$Rz)]
+
+#Set Sync2 to zero before the second sowing
+root.depth$mrd[which(root.depth$Treatment=="Sync2" & root.depth$Time<=9)]<-0
+
+#Remove rhizoboxes 35, 70, 15, 27, 137
+root.depth<-root.depth[-which(root.depth$Rz==35|root.depth$Rz==70|root.depth$Rz==15|root.depth$Rz==27|root.depth$Rz==137),]
+
+root.depth$Treatment<-factor(root.depth$Treatment, levels=c("Sync1", "F-first", "G-first", "L-first", "Sync2"))
+```
+
+### Plot mean rooting depth over time
+
+```{r Calculate MRD, message=FALSE, warning=FALSE}
+#Create empty dataset for summary statistics
+stat.mrd<-data.frame(Treatment=rep(NA, length(unique(root.depth$Rz))),
+                     Time=rep(NA, length(unique(root.depth$Rz))),
+                     meanValue=rep(NA, length(unique(root.depth$Rz))),
+                     lower=rep(NA, length(unique(root.depth$Rz))),
+                     upper=rep(NA, length(unique(root.depth$Rz))))
+ 
+k<-0
+ 
+for (i in unique(root.depth$Treatment)){
+   
+  for (j in unique(root.depth$Time)){
+     
+    k<-k+1
+    sub<-root.depth[root.depth$Treatment==i & root.depth$Time==j,]
+    #Calculate compatibility interval (bootstrap resampling)
+    set.seed(1)
+    a<-smean.cl.boot(sub$mrd, B=10000)
+    stat.mrd[k,]<-c(i, j, as.numeric(a))}}
+ 
+stat.mrd[,2]<-as.numeric(stat.mrd[,2])
+stat.mrd[,3]<-as.numeric(stat.mrd[,3])
+stat.mrd[,4]<-as.numeric(stat.mrd[,4])
+stat.mrd[,5]<-as.numeric(stat.mrd[,5])
+ 
+stat.mrd$Treatment<-factor(stat.mrd$Treatment, levels=c("Sync1", "F-first", "G-first", "L-first", "Sync2"))
+
+#Plot mean rooting depth over time
+(p9<-ggplot(stat.mrd, aes(x=Time, y=meanValue, color=Treatment))+
+  geom_ribbon(aes(ymin=lower, ymax=upper, fill=Treatment, alpha=Treatment), color=NA)+
+  geom_line()+
+  geom_point(shape=16)+
+  geom_vline(xintercept=10, linetype=3)+
+  theme_bw()+
+  theme(legend.title=element_blank(),
+        axis.text=element_text(size=10, color="black"),
+        axis.title.y = element_text(margin=margin(r=10)),
+        axis.title.x = element_text(margin=margin(t=10)))+
+  ylab("MRD (cm)")+
+  xlab("Time (days)")+
+  scale_color_manual(values=colors)+
+  scale_fill_manual(values=colors)+
+  scale_x_continuous(breaks=unique(stat.mrd$Time)))+
+  scale_alpha_manual(values=c(0.3,0.2,0.2,0.2,0.1))
+
+#Plot mean rooting depth over time
+#One line per rhizobox
+(p10<-ggplot(root.depth, aes(x=Time, y=mrd, color=Treatment, group=Rz))+
+  geom_line()+
+  theme_bw()+
+  theme(legend.title=element_blank(),
+        axis.text=element_text(size=10, color="black"),
+        axis.title.y = element_text(margin=margin(r=10)),
+        axis.title.x = element_text(margin=margin(t=10)))+
+  ylab("MRD (cm)")+
+  xlab("Time (days)")+
+  scale_color_manual(values=colors)+
+  scale_fill_manual(values=colors))
+
+#Plot mean rooting depth at last observation date
+
+(p11<-ggplot(root.depth[root.depth$Time==44,], aes(x=Treatment, y=mrd, colour=Treatment)) +
+    geom_jitter(width=0.1, shape=1) + 
+    stat_summary(fun.data="mean_cl_boot")+
+    ylab("MRD (cm)")+
+    xlab("")+ 
+    theme_bw()+
+    scale_color_manual(values=colors)+
+    theme(legend.title=element_blank(),
+          axis.text=element_text(size=10, color="black"),
+          axis.title.y = element_text(margin=margin(r=10)),
+          axis.title.x = element_text(margin=margin(t=10))))
+
+model<-glm(-mrd~Treatment, root.depth[root.depth$Time==44,], family=Gamma(link="log"))
+
+summary(model)
+summary(emmeans(model, "Treatment", contr="tukey"), type="response")
+summary(emmeans(model, "Treatment", contr="tukey"))
+```
+
+### Fit linear mixed effect model
+
+```{r Fit lmer to mean rooting depth data, message=FALSE, warning=FALSE}
+#Calculate number of days after first sowing (dafs)
+root.depth$dafs<-root.depth$Time
+root.depth$dafs[root.depth$Treatment=="Sync2"]<-root.depth$dafs[root.depth$Treatment=="Sync2"]-10
+root.depth1<-root.depth[root.depth$dafs>=0,]
+
+#Fit linear mixed-effect model(random slope and random intercept)
+model<-lmer(mrd~Treatment*dafs+(dafs|Rz), root.depth1)
+summary(model)
+plot(model)
+
+#Plot model fit
+#One line per rhizobox
+(p12<-ggplot(root.depth1, aes(x=dafs, y=mrd, color=Treatment, group=Rz))+
+  geom_line(data = cbind(root.depth1, pred = predict(model)), aes(y = pred), size = 1)+
+  geom_point(shape=16)+
+  theme_bw()+
+  theme(legend.title=element_blank(),
+        axis.text=element_text(size=10, color="black"),
+        axis.title.y = element_text(margin=margin(r=10)),
+        axis.title.x = element_text(margin=margin(t=10)))+
+  ylab("MRD (cm)")+
+  xlab("Days after sowing")+
+  scale_color_manual(values=colors)+
+  scale_fill_manual(values=colors)+
+  scale_x_continuous(limits=c(1, 44)))
+
+pred.mm <- ggpredict(model, terms = c("dafs [1,2,4,6,7,8,9,11,13,14,15,16,18,20,21,22,23,25,27,28,29,30,32,34,35,37,39,42,44]", "Treatment"))
+
+data.mm<-data.frame(dafs=pred.mm$x,
+                    Pred=pred.mm$predicted,
+                    Treatment=pred.mm$group,
+                    CIlow=pred.mm$conf.low,
+                    CIhigh=pred.mm$conf.high)
+
+data.mm<-data.mm[-which(data.mm$Treatment=="Sync2" & data.mm$dafs>34),]
+data.mm<-data.mm[-which(data.mm$Treatment!="Sync2" & data.mm$dafs<2),]
+
+#Plot model fit
+(p13<-ggplot(data.mm) + 
+    geom_line(aes(x = dafs, y = Pred, group=Treatment, color=Treatment), size=1) +   
+    geom_ribbon(aes(x = dafs, ymin = CIlow, ymax = CIhigh, fill=Treatment, alpha=Treatment)) +
+    ylab("MRD (cm)")+
+    xlab("Days after sowing")+ 
+    theme_bw()+
+    scale_color_manual(values=colors)+
+    scale_fill_manual(values=colors)+
+    theme(legend.title=element_blank(),
+          axis.text=element_text(size=10, color="black"),
+          axis.title.y = element_text(margin=margin(r=10)),
+          axis.title.x = element_text(margin=margin(t=10)))+
+    scale_alpha_manual(values=c(0.3,0.2,0.2,0.2,0.1)))
+```
+
+### Correlation between MRD biomass and MRD images
+
+```{r Correlation MRD, message=FALSE, warning=FALSE}
+root1<-root1[order(root1$Rz),] #Contain MRD values calculated from root biomass
+root1$MRDrp<-root.depth[root.depth$Time==44,"mrd"]
+
+corrMRD<-data.frame(MRDb=root1$MRD,
+                    MRDi=root1$MRDrp,
+                    Treatment=root1$Treatment)
+
+(p14<-ggplot(corrMRD, aes(x=-MRDi, y=MRDb, colour=Treatment))+
+      geom_smooth(method="lm", colour="black")+
+      geom_point(shape=16)+
+      theme_bw()+
+      theme(legend.title = element_blank(),
+            axis.text=element_text(size=10, color="black"),
+            axis.title.y = element_text(margin=margin(r=10)),
+            axis.title.x = element_text(margin=margin(t=10)))+
+      scale_color_manual(values=colors)+
+      xlab("MRD - image analysis (cm)")+
+      ylab("MRD - biomass (cm)"))
+```
+
+### Create figure MRD over time
+
+```{r Figure MRD over time, message=FALSE, warning=FALSE, fig.height=2.36, fig.width=7.09}
+text.size<-8
+title.size<-9
+
+p14<-ggplot(corrMRD, aes(x=-MRDi, y=MRDb, colour=Treatment))+
+      geom_smooth(method="lm", colour="black", size=1)+
+      geom_point(shape=16)+
+      theme_bw()+
+      theme(legend.title=element_blank(),
+            legend.position=c(0.85,0.24),
+            legend.text=element_text(size=7),
+            legend.key.size = unit(0.7, "line"),
+            legend.background = element_blank(),
+            axis.text=element_text(size=text.size, color="black"),
+            axis.title=element_text(size=title.size),
+            axis.title.y = element_text(margin=margin(r=5)),
+            axis.title.x = element_text(margin=margin(t=5)))+
+      scale_color_manual(values=colors)+
+      xlab("MRD - image analysis (cm)")+
+      ylab("MRD - biomass (cm)")
+
+p9<-ggplot(stat.mrd, aes(x=Time, y=meanValue, color=Treatment))+
+  geom_ribbon(aes(ymin=lower, ymax=upper, fill=Treatment, alpha=Treatment), color=NA)+
+  geom_line()+
+  geom_point(shape=16, size=1)+
+  geom_vline(xintercept=10, linetype=3)+
+  theme_bw()+
+  theme(legend.title=element_blank(),
+        legend.position=c(0.85,0.82),
+        legend.text=element_text(size=7),
+        legend.key.size = unit(0.7, "line"),
+        legend.background = element_blank(),
+        axis.text=element_text(size=text.size, color="black"),
+        axis.title=element_text(size=title.size),
+        axis.title.y = element_text(margin=margin(r=5)),
+        axis.title.x = element_text(margin=margin(t=5)),
+        panel.grid.minor = element_blank())+
+  ylab("Mean rooting depth (cm)")+
+  xlab("Time (days)")+
+  scale_color_manual(values=colors)+
+  scale_fill_manual(values=colors)+
+  scale_x_continuous(breaks=unique(root.depth$Time),
+                     labels=c(2,4,"",9,"","",16,"","",23,"","",30,"","",37, "","",44))+
+  scale_alpha_manual(values=c(0.2,0.2,0.2,0.2,0.1))
+
+p13<-ggplot(data.mm) + 
+    geom_line(aes(x = dafs, y = Pred, group=Treatment, color=Treatment), size=0.6) +
+    geom_ribbon(aes(x = dafs, ymin = CIlow, ymax = CIhigh, fill=Treatment, alpha=Treatment), color=NA) +
+    ylab("Mean rooting depth (cm)")+
+    xlab("Days after sowing")+ 
+    theme_bw()+
+    scale_color_manual(values=colors)+
+    scale_fill_manual(values=colors)+
+    theme(legend.position="none",
+          axis.text=element_text(size=text.size, color="black"),
+          axis.title=element_text(size=title.size),
+          axis.title.y = element_text(margin=margin(r=5)),
+          axis.title.x = element_text(margin=margin(t=5)),
+          panel.grid.minor = element_blank())+
+    scale_alpha_manual(values=c(0.2,0.2,0.2,0.2,0.1))+
+    scale_x_continuous(breaks=seq(0,44, by=4),
+                     labels=seq(0,44, by=4))+
+    scale_y_continuous(breaks=c(0,-4,-8,-12,-16), labels=c(0,-4,-8,-12,-16), limits=c(-16,0))
+
+(p15<-ggarrange(p14, p9, p13, nrow=1, ncol=3, labels=c("(a)", "(b)", "(c)"), font.label = list(size=11)))
+
+#ggsave("Figure5.tiff", p15, dpi=1000, compression="lzw", width=20, height=6, units="cm")
+```
