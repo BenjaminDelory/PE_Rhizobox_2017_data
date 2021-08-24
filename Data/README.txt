@@ -4,7 +4,7 @@
 GENERAL INFORMATION
 -------------------
 
-1. Raw data used for the following paper: Alonso-Crespo et al (2021) Assembly history modulates vertical root distribution in grassland communities.  
+1. Raw data used for the following paper: Alonso-Crespo et al (2021) Assembly history modulates vertical root distribution in a grassland experiment.  
 
 2. Author Information
 
