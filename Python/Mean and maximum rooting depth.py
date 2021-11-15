@@ -31,8 +31,9 @@ res=94.8135
 path="Z:/Poem/Rhizoboxes/Backup_RootPainter/drive_rp_sync/projects/PE_rhizotrons_2017_1/results/segmentations"
 files=os.listdir(path)
 
-#Create empty array to story mean rooting depth values
+#Create empty array to story mean and max rooting depth values
 mrd=[]
+maxrd=[]
 
 for file in files:
         
@@ -58,12 +59,14 @@ for file in files:
         depth=np.array(range(0, len(px), 1))*(-1)/res
     
         mrd.append(np.sum(depth*np.array(px))/totalpx)
+        maxrd.append(depth[np.max(np.nonzero(px))])
         
     else:
         
         mrd.append(0)
+        maxrd.append(0)
 
 #Save results in a csv file (results.csv)
 output="Z:/Poem/Rhizoboxes/Backup_RootPainter/drive_rp_sync/projects/PE_rhizotrons_2017_1/results/segmentations"
-results=pd.DataFrame(data={'image': files, 'mrd':mrd}).sort_values(by='image')
+results=pd.DataFrame(data={'image': files, 'mrd':mrd, 'maxrd':maxrd}).sort_values(by='image')
 results.to_csv(output+'/results.csv', index=False)

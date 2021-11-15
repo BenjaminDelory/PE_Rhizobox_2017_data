@@ -1,4 +1,4 @@
-﻿This README.txt file was generated on 20210807 by Benjamin Delory
+﻿This README.txt file was generated on 20211101 by Benjamin Delory
 
 -------------------
 GENERAL INFORMATION
@@ -193,7 +193,7 @@ DATA-SPECIFIC INFORMATION FOR: Image_RZ.txt
 DATA-SPECIFIC INFORMATION FOR: results.csv
 -------------------------------------------
 
-1. Number of variables: 2
+1. Number of variables: 3
 
 2. Number of cases/rows: 665
 
@@ -207,3 +207,104 @@ DATA-SPECIFIC INFORMATION FOR: results.csv
        Description: the mean rooting depth estimated using image analysis (see Figure 1 of the paper)
        Type: numeric
        Unit: cm
+
+    C. Name: maxrd
+       Description: the maximum rooting depth estimated using image analysis (see Figure 1 of the paper)
+       Type: numeric
+       Unit: cm
+
+--------------------------------------------
+DATA-SPECIFIC INFORMATION FOR: features.csv
+--------------------------------------------
+
+1. Number of variables: 18
+
+2. Number of cases/rows: 665
+
+3. Variable List
+    A. Name: File.Name
+       Description: the name of each image processed by RhizoVision Explorer
+       Type: character
+       Format: YYYY-MM-DD-RZ-ImageNumber.png
+
+    B. Name: Region.of.Interest
+       Description: the region of interest used for the analysis
+       Type: character
+
+    C. Name: Number.of.Root.Tips
+       Description: the number of root tips
+       Type: integer
+
+    D. Name: Number.of.Branch.Points
+       Description: the number of branch points
+       Type: integer
+
+    E. Name: Total.Root.Length.mm
+       Description: the total root length
+       Type: numeric
+       Unit: mm
+
+    F. Name: Branching.frequency.per.mm
+       Description: the branching frequency
+       Type: numeric
+       Unit: mm-1
+
+    G. Name: Network.Area.mm2
+       Description: the network area
+       Type: numeric
+       Unit: mm²
+
+    H. Name: Average.Diameter.mm
+       Description: the average root diameter
+       Type: numeric
+       Unit: mm
+
+    I. Name: Median.Diameter.mm
+       Description: the median root diameter
+       Type: numeric
+       Unit: mm
+
+    J. Name: Maximum.Diameter.mm
+       Description: the maximum root diameter
+       Type: numeric
+       Unit: mm
+
+    K. Name: Perimeter.mm
+       Description: the perimeter
+       Type: numeric
+       Unit: mm
+
+    L. Name: Volume.mm3
+       Description: the root volume
+       Type: numeric
+       Unit: mm³
+
+    M. Name: Surface.Area.mm2
+       Description: the root surface area
+       Type: numeric
+       Unit: mm²
+
+    N. Name: Computation.Time.s
+       Description: the computation time
+       Type: numeric
+       Unit: s
+
+    O. Name: Root.Length.Diameter.Range.1.mm
+       Description: the total root length measured in the first diameter class
+       Type: numeric
+       Unit: mm
+
+    P. Name: Projected.Area.Diameter.Range.1.mm2
+       Description: the projected area measured in the first diameter class
+       Type: numeric
+       Unit: mm²
+
+    Q. Name: Surface.Area.Diameter.Range.1.mm2
+       Description: the root surface area measured in the first diameter class
+       Type: numeric
+       Unit: mm²
+
+    R. Name: Volume.Diameter.Range.1.mm3
+       Description: the root volume measured in the first diameter class
+       Type: numeric
+       Unit: mm³

@@ -1,7 +1,7 @@
 ---
 title: "Data_analysis_PE_rhizoboxes"
 author: "Benjamin Delory and Inés Alonso-Crespo"
-date: "06/08/2021"
+date: "15/11/2021"
 output: 
   html_document:
     toc: TRUE
@@ -21,6 +21,7 @@ knitr::opts_chunk$set(echo = TRUE, fig.align = "center")
 ```{r Load R packages, message=FALSE, warning=FALSE}
 library(ggplot2)
 library(ggpubr)
+library(ggsignif)
 library(lme4)
 library(emmeans)
 library(lmerTest)
@@ -30,6 +31,7 @@ library(MASS)
 library(viridis)
 library(sp)
 library(stringr)
+library(dplyr)
 ```
 
 ## Create function to calculate MRD and D90 from root biomass data
@@ -163,31 +165,6 @@ shoot1<-data.frame(Treatment=rep(shoot$Treatment, 9),
                    Replicate=rep(shoot$Replicate, 9),
                    Species=rep(c("Trifolium pratense", "Lotus corniculatus", "Medicago sativa", "Festuca rubra", "Holcus lanatus", "Dactylis glomerata", "Centaurea jacea", "Leucanthemum vulgare", "Achillea millefolium"), each=31),
                    SDW=as.vector(as.matrix(shoot[,4:12])))
-```
-
-### Plot shoot biomass for each species
-
-```{r Plot shoot biomass per species, fig.height=6.69, fig.width=7.09, message=FALSE, warning=FALSE}
-shoot1$Treatment<-factor(shoot1$Treatment, levels=c("Sync1", "F-first", "G-first", "L-first", "Sync2"))
-shoot1$Species<-factor(shoot1$Species, levels=c("Achillea millefolium", "Centaurea jacea", "Leucanthemum vulgare", "Dactylis glomerata", "Festuca rubra", "Holcus lanatus", "Lotus corniculatus", "Medicago sativa","Trifolium pratense"))
-                                                
-colors<-c("#999999", "#56B4E9", "#E69F00", "#009E73", "black")
-
-(p1<-ggplot(shoot1, aes(x=Treatment, y=SDW, color=Treatment))+
-      facet_wrap(~Species, scales="free_y")+
-      geom_jitter(shape=1, width=0.15)+
-      stat_summary(fun.data="mean_cl_boot", size=0.5)+
-      theme_bw()+
-      theme(legend.position = "none")+
-      ylab("Shoot dry weight (mg)")+
-      xlab("")+
-      theme(axis.text=element_text(size=10, color="black"),
-            strip.text=element_text(face="italic", size=10),
-            axis.title.y=element_text(margin=margin(r=10)),
-            axis.text.x = element_text(angle=90, vjust=0.5))+
-      scale_color_manual(values=colors))
-
-#ggsave("Figure3.tiff", p1, dpi=1000, compression="lzw", width=18, height=17, units="cm")
 ```
 
 ### Plot total shoot biomass
@@ -412,6 +389,148 @@ ggplot(es.Total$bootstrap)+
   axis.text=element_text(color="black"))
 ```
 
+### Plot shoot biomass for each species
+
+```{r Plot shoot biomass per species, fig.height=6.69, fig.width=7.09, message=FALSE, warning=FALSE}
+shoot1$Treatment<-factor(shoot1$Treatment, levels=c("Sync1", "F-first", "G-first", "L-first", "Sync2"))
+shoot1$Species<-factor(shoot1$Species, levels=c("Achillea millefolium", "Centaurea jacea", "Leucanthemum vulgare", "Dactylis glomerata", "Festuca rubra", "Holcus lanatus", "Lotus corniculatus", "Medicago sativa","Trifolium pratense"))
+                                                
+colors<-c("#999999", "#56B4E9", "#E69F00", "#009E73", "black")
+
+shoot1$PFG<-"Legumes"
+shoot1$PFG[which(shoot1$Species=="Achillea millefolium"|
+                   shoot1$Species=="Centaurea jacea"|
+                   shoot1$Species=="Leucanthemum vulgare")]<-"Forbs"
+shoot1$PFG[which(shoot1$Species=="Dactylis glomerata"|
+                   shoot1$Species=="Festuca rubra"|
+                   shoot1$Species=="Holcus lanatus")]<-"Grasses"
+
+shoot1$PFG<-factor(shoot1$PFG, levels=c("Forbs", "Grasses", "Legumes"))
+
+data_signif_1<-data.frame(
+  Species=c("Achillea millefolium", "Centaurea jacea", "Leucanthemum vulgare", "Dactylis glomerata", "Festuca rubra", "Holcus lanatus", "Lotus corniculatus", "Medicago sativa","Trifolium pratense"),
+  PFG=c("Forbs", "Forbs", "Forbs", "Grasses", "Grasses", "Grasses","Legumes","Legumes","Legumes"),
+  xmin=c(1,1,1,1,1,1,1,1,1),
+  xmax=c(2,2,2,3,3,3,4,4,4),
+  x=c(1.5,1.5,1.5,2,2,2,2.5,2.5,2.5),
+  y=c(220,255,175,210,65,280,85,360,180),
+  annotations=c("*", "*","","","","","","",""),
+  linetype=c("y","y",rep("n", 7)))
+
+data_signif_2<-data.frame(
+  Species=c("Achillea millefolium", "Achillea millefolium",
+            "Centaurea jacea", "Centaurea jacea",
+            "Leucanthemum vulgare", "Leucanthemum vulgare",
+            "Dactylis glomerata", "Dactylis glomerata",
+            "Festuca rubra", "Festuca rubra",
+            "Holcus lanatus", "Holcus lanatus",
+            "Lotus corniculatus", "Lotus corniculatus",
+            "Medicago sativa", "Medicago sativa",
+            "Trifolium pratense", "Trifolium pratense"),
+  PFG=c("Forbs", "Forbs",
+            "Forbs", "Forbs",
+            "Forbs", "Forbs",
+            "Grasses", "Grasses",
+            "Grasses", "Grasses",
+            "Grasses", "Grasses",
+            "Legumes", "Legumes",
+            "Legumes", "Legumes",
+            "Legumes", "Legumes"),
+  xmin=c(3,4,
+         3,4,
+         3,4,
+         2,4,
+         2,4,
+         2,4,
+         2,3,
+         2,3,
+         3,2),
+  xmax=c(4,5,
+         4,5,
+         4,5,
+         4,5,
+         4,5,
+         4,5,
+         3,5,
+         3,5,
+         5,5),
+  x=c(rep(4,16), 4, 4),
+  y=c(40,40,
+      190,190,
+      50,50,
+      60,60,
+      20,20,
+      50,50,
+      28,28,
+      130,130,
+      65,85),
+  annotations=c(rep("",16), "*",""),
+  linetype=c(rep("n", 16), "y", "n"))
+
+data_signif_3<-data.frame(
+  Species="Trifolium pratense",
+  PFG="Legumes",
+  xmin=2,
+  xmax=3,
+  x=2.5,
+  y=75,
+  annotations="*",
+  linetype="y")
+
+
+data_signif_1$Species<-factor(data_signif_1$Species, levels=c("Achillea millefolium", "Centaurea jacea", "Leucanthemum vulgare", "Dactylis glomerata", "Festuca rubra", "Holcus lanatus", "Lotus corniculatus", "Medicago sativa","Trifolium pratense"))
+
+data_signif_2$Species<-factor(data_signif_2$Species, levels=c("Achillea millefolium", "Centaurea jacea", "Leucanthemum vulgare", "Dactylis glomerata", "Festuca rubra", "Holcus lanatus", "Lotus corniculatus", "Medicago sativa","Trifolium pratense"))
+
+data_signif_3$Species<-factor(data_signif_3$Species, levels=c("Trifolium pratense"))
+
+data_signif_1$PFG<-factor(data_signif_1$PFG, levels=c("Forbs", "Grasses", "Legumes"))
+
+data_signif_2$PFG<-factor(data_signif_2$PFG, levels=c("Forbs", "Grasses", "Legumes"))
+
+data_signif_3$PFG<-factor(data_signif_3$PFG, levels=c("Legumes"))
+
+# New facet label names for species
+species.labs <- c("Achillea millefolium (forb)", "Centaurea jacea (forb)", "Leucanthemum vulgare (forb)", "Dactylis glomerata (grass)", "Festuca rubra (grass)", "Holcus lanatus (grass)", "Lotus corniculatus (legume)", "Medicago sativa (legume)","Trifolium pratense (legume)")
+
+names(species.labs) <- c("Achillea millefolium", "Centaurea jacea", "Leucanthemum vulgare", "Dactylis glomerata", "Festuca rubra", "Holcus lanatus", "Lotus corniculatus", "Medicago sativa","Trifolium pratense")
+
+(p1<-ggplot(shoot1)+
+      geom_jitter(aes(x=Treatment, y=SDW, color=Treatment), shape=1, width=0.15)+
+      stat_summary(aes(x=Treatment, y=SDW, color=Treatment), fun.data="mean_cl_boot", size=0.5)+
+      facet_wrap(~Species, scales="free_y", drop=T, labeller=labeller(Species=species.labs))+
+      geom_signif(data=data_signif_1,
+       mapping=aes(x=x, y_position=y, xmin=xmin, xmax=xmax, annotations=annotations, linetype=linetype),
+       manual=T,
+       inherit.aes = F,
+       vjust=1.4,
+       textsize = 6)+
+      geom_signif(data=data_signif_2,
+       mapping=aes(x=x, y_position=y, xmin=xmin, xmax=xmax, annotations=annotations, linetype=linetype),
+       manual=T,
+       inherit.aes = F,
+       vjust=1.4,
+       textsize = 6)+
+      geom_signif(data=data_signif_3,
+         mapping=aes(x=x, y_position=y, xmin=xmin, xmax=xmax, annotations=annotations, linetype=linetype),
+         manual=T,
+         inherit.aes = F,
+         vjust=1.4,
+         textsize = 6)+
+      theme_bw()+
+      theme(legend.position = "none")+
+      ylab("Shoot dry weight (mg)")+
+      xlab("")+
+      theme(axis.text=element_text(size=10, color="black"),
+            strip.text.x =element_text(face="italic", size=9.5),
+            axis.title.y=element_text(margin=margin(r=10)),
+            axis.text.x = element_text(angle=45, vjust=1, hjust=1))+
+      scale_color_manual(values=colors)+
+      scale_linetype_manual(values=c(2,1)))
+
+#ggsave("Figure3.tiff", p1, dpi=1000, compression="lzw", width=18, height=17, units="cm")
+```
+
 ## Analysis of root biomass data
 
 ### Load root biomass data
@@ -501,13 +620,6 @@ ggplot(es.mrdb$bootstrap)+
   axis.text=element_text(color="black"))
 ```
 
-### Create combined plot for aboveground and belowground productivity (figure 2)
-
-```{r Create figure 2, message=FALSE, warning=FALSE, fig.height=3.54, fig.width=7.08}
-(figure2<-ggarrange(p2, p3, align="hv", nrow=1, ncol=2, labels=c("(a)", "(b)"), font.label=list(size=12)))
-#ggsave("Figure2.tiff", figure2, dpi=1000, compression="lzw", width=18, height=9, units="cm")
-```
-
 ### Plot root biomass distribution in soil layers
 
 ```{r Plot root biomass distribution, message=FALSE, warning=FALSE, fig.width=7.09, fig.height=5.12}
@@ -524,14 +636,13 @@ names(supp.labs)<-c("0-10 cm", "10-20 cm", "20-30 cm", "30-40 cm", "40-50 cm", "
     theme(legend.position = "none",
           axis.text=element_text(color="black"),
           axis.title.y = element_text(margin=margin(t=0,b=0,r=10,l=0)),
-          axis.text.x=element_text(size=10, angle=90),
+          axis.text.x=element_text(size=10, angle=45, hjust = 1, vjust=1),
           axis.text.y=element_text(size=10),
           strip.text = element_text(size=10))+
     facet_wrap(~Layer, scales="free_y",
                labeller=labeller(Layer=supp.labs)))
 
-#ggsave("Vertical_root_distribution.tiff", p4, dpi=1000, compression="lzw", width=18, height=13, units="cm")
-
+#ggsave("FigureS3.tiff", p4, dpi=1000, compression="lzw", width=18, height=13, units="cm")
 ```
 
 ### Root biomass distribution in the soil
@@ -558,11 +669,11 @@ boxplot(E1~root.pos$Treatment, xlab="", ylab="Residuals")
 boxplot(E1~root.pos$Depth, xlab="Depth (cm)", ylab="Residuals")
 
 #Make predictions
-pred.mm <- data.frame(Depth=rep(seq(5,55,by=0.1), 5), Treatment=rep(unique(root$Treatment), each=501))
-pred.mm$Pred <- predict(H1, newdata=pred.mm, type="response", level=0)
+pred.mm.H1 <- data.frame(Depth=rep(seq(5,55,by=0.1), 5), Treatment=rep(unique(root$Treatment), each=501))
+pred.mm.H1$Pred <- predict(H1, newdata=pred.mm.H1, type="response", level=0)
 
 #Plot GLMM fit
-(p5<-ggplot(pred.mm) +
+(p5<-ggplot(pred.mm.H1) +
     geom_jitter(data=root.pos, aes(x=Depth, y=RDW, colour=Treatment), width=1, shape=1) +
     geom_line(aes(x = Depth, y = Pred, color=Treatment), size=1) +
     ylab("Root dry weight (mg)")+
@@ -601,12 +712,12 @@ H2<-glmmPQL(fixed=RDW.01~Depth*Treatment, random=~1|Rz, data=root, family=binomi
 summary(H2)
 
 #Make predictions
-pred.mm <- data.frame(Depth=rep(seq(5,55,by=0.1), 5),
+pred.mm.H2 <- data.frame(Depth=rep(seq(5,55,by=0.1), 5),
                       Treatment=rep(unique(root$Treatment), each=501))
-pred.mm$Pred <- predict(H2, newdata=pred.mm, type="response", level=0)
+pred.mm.H2$Pred <- predict(H2, newdata=pred.mm.H2, type="response", level=0)
 
-#Plot GLMM fit
-(p7<-ggplot(pred.mm) +
+#Plot binomial fit
+(p7<-ggplot(pred.mm.H2) +
     geom_jitter(data=root, aes(x=Depth, y=RDW.01, colour=Treatment), height=0.2, width=1, shape=1) +
     geom_line(aes(x = Depth, y = Pred, color=Treatment), size=1) +
     ylab("Probability that roots are present")+
@@ -639,20 +750,69 @@ newdata$PredZAG<-Pi * mu
 
 #Plot hurdle model fit
 (p8<-ggplot(root) +
-    geom_jitter(data=root, aes(x=Depth, y=RDW, colour=Treatment), width=1, shape=1) +
-    geom_line(data=newdata, aes(x = Depth, y = PredZAG, color=Treatment), size=0.8) +
+    geom_jitter(data=root, aes(x=-Depth, y=RDW, colour=Treatment), width=1, shape=1) +
+    geom_line(data=newdata, aes(x = -Depth, y = PredZAG, color=Treatment), size=0.8) +
     ylab("Root dry weight (mg)")+
     xlab("Depth (cm)")+ 
     theme_bw()+
     theme(legend.title=element_blank(),
-          legend.position=c(0.85,0.75),
+          legend.position=c(0.85,0.22),
           legend.text=element_text(size=8),
+          legend.background = element_blank(),
+          legend.key = element_blank(),
           axis.text=element_text(size=10, color="black"),
           axis.title.y = element_text(margin=margin(r=10)),
           axis.title.x = element_text(margin=margin(t=10)))+
-    scale_color_manual(values=colors))
+    scale_x_continuous(breaks=c(-5,-15,-25,-35,-45,-55))+
+    scale_color_manual(values=colors)+
+    coord_flip())
 
-#ggsave("Figure4.tiff", p8, dpi=1000, compression="lzw", width=10, height=9.5, units="cm")
+#ggsave("Figure4.tiff", p8, dpi=1000, compression="lzw", width=9.5, height=10, units="cm")
+```
+
+#### Create figure showing model fits for the Gamma and Binomial components of the hurdle model
+
+```{r Create Figure S2, message=FALSE, warning=FALSE, fig.height=3.94, fig.width=7.09}
+#Plot gamma component
+p5<-ggplot(pred.mm.H1) +
+    geom_jitter(data=root.pos, aes(x=-Depth, y=RDW, colour=Treatment), width=1, shape=1) +
+    geom_line(aes(x = -Depth, y = Pred, color=Treatment), size=1) +
+    ylab("Root dry weight (mg)")+
+    xlab("Depth (cm)")+ 
+    theme_bw()+
+    theme(legend.title=element_blank(),
+          legend.position=c(0.85,0.22),
+          legend.text=element_text(size=9),
+          legend.background = element_blank(),
+          legend.key = element_blank(),
+          axis.text=element_text(size=10, color="black"),
+          axis.title.y = element_text(margin=margin(r=10)),
+          axis.title.x = element_text(margin=margin(t=10)))+
+    scale_color_manual(values=colors)+
+    coord_flip()+
+    scale_x_continuous(breaks=c(-5,-15,-25,-35,-45,-55))+
+    ggtitle("Gamma component")
+
+#Plot binomial component
+p7<-ggplot(pred.mm.H2) +
+    geom_jitter(data=root, aes(x=-Depth, y=RDW.01, colour=Treatment), height=0.1, width=1, shape=1) +
+    geom_line(aes(x = -Depth, y = Pred, color=Treatment), size=1) +
+    ylab("Probability that roots are present")+
+    xlab("")+ 
+    theme_bw()+
+    theme(legend.position="none",
+          axis.text=element_text(size=10, color="black"),
+          axis.title.y = element_text(margin=margin(r=10)),
+          axis.title.x = element_text(margin=margin(t=10)))+
+    scale_color_manual(values=colors)+
+    coord_flip()+
+    scale_x_continuous(breaks=c(-5,-15,-25,-35,-45,-55))+
+    scale_y_continuous(breaks=c(0,0.5,1))+
+    ggtitle("Binomial component")
+
+(p5and7<-ggarrange(p5, p7, nrow=1, ncol=2, labels=c("(a)", "(b)"), font.label = list(size=12)))
+
+#ggsave("FigureS2.tiff", p5and7, dpi=1000, compression="lzw", width=18, height=10, units="cm")
 ```
 
 ## Analysis of root distribution over time
@@ -661,6 +821,8 @@ newdata$PredZAG<-Pi * mu
 
 ```{r Load RootPainter data, message=FALSE, warning=FALSE}
 root.depth <- read.csv("Z:/Poem/Rhizoboxes/Backup_RootPainter/drive_rp_sync/projects/PE_rhizotrons_2017_1/results/segmentations/results.csv")
+
+root.length <- read.csv("Z:/Poem/Rhizoboxes/Backup_RootPainter/drive_rp_sync/projects/PE_rhizotrons_2017_1/results/analysis_RVE/features.csv")
 
 ID <- read.delim("Z:/Poem/Rhizoboxes/0_Rz_experiment_data/Data/Image_RZ.txt")
 TIME <- read.delim("Z:/Poem/Rhizoboxes/0_Rz_experiment_data/Data/Date_TimePoint.txt")
@@ -680,13 +842,25 @@ root.depth<-root.depth[order(root.depth$Rz, root.depth$Time),]
 #Add treatment column
 root.depth$Treatment<-root1$Treatment[match(root.depth$Rz, root1$Rz)]
 
+#Add root_length column in root.depth
+root.depth$root_length<-root.length$Total.Root.Length.mm[match(root.depth$image, root.length$File.Name)]
+root.depth$root_length[is.na(root.depth$root_length)==T]<-0 #Replace NA values by zero
+root.depth$root_length<-root.depth$root_length/1000 #Express results in meters
+
 #Set Sync2 to zero before the second sowing
 root.depth$mrd[which(root.depth$Treatment=="Sync2" & root.depth$Time<=9)]<-0
+root.depth$maxrd[which(root.depth$Treatment=="Sync2" & root.depth$Time<=9)]<-0
+root.depth$root_length[which(root.depth$Treatment=="Sync2" & root.depth$Time<=9)]<-0
 
 #Remove rhizoboxes 35, 70, 15, 27, 137
 root.depth<-root.depth[-which(root.depth$Rz==35|root.depth$Rz==70|root.depth$Rz==15|root.depth$Rz==27|root.depth$Rz==137),]
 
 root.depth$Treatment<-factor(root.depth$Treatment, levels=c("Sync1", "F-first", "G-first", "L-first", "Sync2"))
+
+#No root in image "2017-08-16-RZ-0001.png", so set mrd and maxrd to zero
+root.depth$mrd[root.depth$image=="2017-08-16-RZ-0001.png"]<-0
+root.depth$maxrd[root.depth$image=="2017-08-16-RZ-0001.png"]<-0
+root.depth$root_length[root.depth$image=="2017-08-16-RZ-0001.png"]<-0
 ```
 
 ### Plot mean rooting depth over time
@@ -734,8 +908,8 @@ stat.mrd$Treatment<-factor(stat.mrd$Treatment, levels=c("Sync1", "F-first", "G-f
   xlab("Time (days)")+
   scale_color_manual(values=colors)+
   scale_fill_manual(values=colors)+
-  scale_x_continuous(breaks=unique(stat.mrd$Time)))+
-  scale_alpha_manual(values=c(0.3,0.2,0.2,0.2,0.1))
+  scale_x_continuous(breaks=unique(stat.mrd$Time))+
+  scale_alpha_manual(values=c(0.3,0.2,0.2,0.2,0.1)))
 
 #Plot mean rooting depth over time
 #One line per rhizobox
@@ -772,7 +946,263 @@ summary(emmeans(model, "Treatment", contr="tukey"), type="response")
 summary(emmeans(model, "Treatment", contr="tukey"))
 ```
 
-### Fit linear mixed effect model
+### Plot maximum rooting depth over time
+
+```{r Calculate MaxRD, message=FALSE, warning=FALSE}
+#Create empty dataset for summary statistics
+stat.maxrd<-data.frame(Treatment=rep(NA, length(unique(root.depth$Rz))),
+                       Time=rep(NA, length(unique(root.depth$Rz))),
+                       meanValue=rep(NA, length(unique(root.depth$Rz))),
+                       lower=rep(NA, length(unique(root.depth$Rz))),
+                       upper=rep(NA, length(unique(root.depth$Rz))))
+ 
+k<-0
+ 
+for (i in unique(root.depth$Treatment)){
+   
+  for (j in unique(root.depth$Time)){
+     
+    k<-k+1
+    sub<-root.depth[root.depth$Treatment==i & root.depth$Time==j,]
+    #Calculate compatibility interval (bootstrap resampling)
+    set.seed(1)
+    a<-smean.cl.boot(sub$maxrd, B=10000)
+    stat.maxrd[k,]<-c(i, j, as.numeric(a))}}
+ 
+stat.maxrd[,2]<-as.numeric(stat.maxrd[,2])
+stat.maxrd[,3]<-as.numeric(stat.maxrd[,3])
+stat.maxrd[,4]<-as.numeric(stat.maxrd[,4])
+stat.maxrd[,5]<-as.numeric(stat.maxrd[,5])
+ 
+stat.maxrd$Treatment<-factor(stat.maxrd$Treatment, levels=c("Sync1", "F-first", "G-first", "L-first", "Sync2"))
+
+#Plot max rooting depth over time
+(p9a<-ggplot(stat.maxrd, aes(x=Time, y=meanValue, color=Treatment))+
+  geom_ribbon(aes(ymin=lower, ymax=upper, fill=Treatment, alpha=Treatment), color=NA)+
+  geom_line()+
+  geom_point(shape=16)+
+  geom_vline(xintercept=10, linetype=3)+
+  theme_bw()+
+  theme(legend.title=element_blank(),
+        axis.text=element_text(size=10, color="black"),
+        axis.title.y = element_text(margin=margin(r=10)),
+        axis.title.x = element_text(margin=margin(t=10)))+
+  ylab("MaxRD (cm)")+
+  xlab("Time (days)")+
+  scale_color_manual(values=colors)+
+  scale_fill_manual(values=colors)+
+  scale_x_continuous(breaks=unique(stat.maxrd$Time))+
+  scale_alpha_manual(values=c(0.3,0.2,0.2,0.2,0.1)))
+
+#Plot max rooting depth over time
+#One line per rhizobox
+(p10a<-ggplot(root.depth, aes(x=Time, y=maxrd, color=Treatment, group=Rz))+
+  geom_line()+
+  theme_bw()+
+  theme(legend.title=element_blank(),
+        axis.text=element_text(size=10, color="black"),
+        axis.title.y = element_text(margin=margin(r=10)),
+        axis.title.x = element_text(margin=margin(t=10)))+
+  ylab("MaxRD (cm)")+
+  xlab("Time (days)")+
+  scale_color_manual(values=colors)+
+  scale_fill_manual(values=colors))
+
+#Plot max rooting depth at last observation date
+
+(p11a<-ggplot(root.depth[root.depth$Time==44,], aes(x=Treatment, y=maxrd, colour=Treatment)) +
+    geom_jitter(width=0.1, shape=1) + 
+    stat_summary(fun.data="mean_cl_boot")+
+    ylab("MaxRD (cm)")+
+    xlab("")+ 
+    theme_bw()+
+    scale_color_manual(values=colors)+
+    theme(legend.title=element_blank(),
+          axis.text=element_text(size=10, color="black"),
+          axis.title.y = element_text(margin=margin(r=10)),
+          axis.title.x = element_text(margin=margin(t=10))))
+
+model<-glm(-maxrd~Treatment, root.depth[root.depth$Time==44,], family=Gamma(link="log"))
+
+summary(model)
+summary(emmeans(model, "Treatment", contr="tukey"), type="response")
+summary(emmeans(model, "Treatment", contr="tukey"))
+```
+
+### Plot total root length over time
+
+```{r Calculate TRL, message=FALSE, warning=FALSE}
+#Create empty dataset for summary statistics
+stat.root_length<-data.frame(Treatment=rep(NA, length(unique(root.depth$Rz))),
+                       Time=rep(NA, length(unique(root.depth$Rz))),
+                       meanValue=rep(NA, length(unique(root.depth$Rz))),
+                       lower=rep(NA, length(unique(root.depth$Rz))),
+                       upper=rep(NA, length(unique(root.depth$Rz))))
+ 
+k<-0
+ 
+for (i in unique(root.depth$Treatment)){
+   
+  for (j in unique(root.depth$Time)){
+     
+    k<-k+1
+    sub<-root.depth[root.depth$Treatment==i & root.depth$Time==j,]
+    #Calculate compatibility interval (bootstrap resampling)
+    set.seed(1)
+    a<-smean.cl.boot(sub$root_length, B=10000)
+    stat.root_length[k,]<-c(i, j, as.numeric(a))}}
+ 
+stat.root_length[,2]<-as.numeric(stat.root_length[,2])
+stat.root_length[,3]<-as.numeric(stat.root_length[,3])
+stat.root_length[,4]<-as.numeric(stat.root_length[,4])
+stat.root_length[,5]<-as.numeric(stat.root_length[,5])
+ 
+stat.root_length$Treatment<-factor(stat.root_length$Treatment, levels=c("Sync1", "F-first", "G-first", "L-first", "Sync2"))
+
+#Plot total root length over time
+(p9b<-ggplot(stat.root_length, aes(x=Time, y=meanValue, color=Treatment))+
+  geom_ribbon(aes(ymin=lower, ymax=upper, fill=Treatment, alpha=Treatment), color=NA)+
+  geom_line()+
+  geom_point(shape=16)+
+  geom_vline(xintercept=10, linetype=3)+
+  theme_bw()+
+  theme(legend.title=element_blank(),
+        axis.text=element_text(size=10, color="black"),
+        axis.title.y = element_text(margin=margin(r=10)),
+        axis.title.x = element_text(margin=margin(t=10)))+
+  ylab("Total root length (m)")+
+  xlab("Time (days)")+
+  scale_color_manual(values=colors)+
+  scale_fill_manual(values=colors)+
+  scale_x_continuous(breaks=unique(stat.root_length$Time))+
+  scale_alpha_manual(values=c(0.3,0.2,0.2,0.2,0.1)))
+
+#Plot total root length over time
+#One line per rhizobox
+(p10b<-ggplot(root.depth, aes(x=Time, y=root_length, color=Treatment, group=Rz))+
+  geom_line()+
+  theme_bw()+
+  theme(legend.title=element_blank(),
+        axis.text=element_text(size=10, color="black"),
+        axis.title.y = element_text(margin=margin(r=10)),
+        axis.title.x = element_text(margin=margin(t=10)))+
+  ylab("Total root length (cm)")+
+  xlab("Time (days)")+
+  scale_color_manual(values=colors)+
+  scale_fill_manual(values=colors))
+
+#Plot total root length at last observation date
+
+(p11b<-ggplot(root.depth[root.depth$Time==44,], aes(x=Treatment, y=root_length, colour=Treatment)) +
+    geom_jitter(width=0.1, shape=1) + 
+    stat_summary(fun.data="mean_cl_boot")+
+    ylab("Total root length (m)")+
+    xlab("")+ 
+    theme_bw()+
+    scale_color_manual(values=colors)+
+    theme(legend.title=element_blank(),
+          axis.text=element_text(size=10, color="black"),
+          axis.title.y = element_text(margin=margin(r=10)),
+          axis.title.x = element_text(margin=margin(t=10))))
+
+#Calculate and plot effect sizes for total root length
+es.trl<-bootstrap_ES(response="root_length", data=root.depth[root.depth$Time==44,], contr=c("F-first/G-first", "F-first/L-first", "G-first/L-first"), plot=FALSE)
+knitr::kable(es.trl$summary)
+
+ggplot(es.trl$bootstrap)+
+  geom_hline(yintercept = 0)+
+  stat_ydensity(aes(x=Contrast, y=ES), fill="grey50", color=adjustcolor("white", alpha.f = 0.1), alpha=0.3)+
+  geom_segment(data=es.trl$summary, aes(x=Contrast, xend=Contrast, y=lowCI, yend=highCI), color="black", size=0.5)+
+  geom_point(data=es.trl$summary, aes(x=Contrast, y=ES), shape=16, color="black")+
+  theme_bw()+
+  xlab("")+
+  ylab("ES TRL (m)")+
+  theme(axis.title=element_text(color="black", face="plain"),
+  axis.title.y=element_text(margin = margin(t = 0, r = 5, b = 0, l = 0)),
+  axis.title.x=element_blank(),
+  axis.text=element_text(color="black"))
+```
+
+### Create combined plot for aboveground and belowground productivity and total root length
+
+```{r Create figure 2, message=FALSE, warning=FALSE, fig.height=6.3, fig.width=7.09}
+p2<-ggplot(shoot, aes(x=Treatment, y=Total, color=Treatment)) + 
+    geom_jitter(shape=1, width=0.15) + 
+    labs(x = "", y = "Total shoot dry weight (mg)") +
+    theme_bw()+
+    stat_summary(fun.data="mean_cl_boot", size=0.5)+
+    geom_signif(y_position=740, xmin=2, xmax=3, annotations="", linetype=2, tip_length = 0.02,
+                color="black")+
+    geom_signif(y_position=740, xmin=3, xmax=4, annotations="", linetype=2, tip_length = 0.02,
+                color="black")+
+    scale_color_manual(values=colors)+
+    theme(legend.position = "none",
+          axis.text=element_text(size=10, color="black"),
+          axis.title.y = element_text(margin=margin(t=0,b=0,r=5,l=0)),
+          axis.text.x=element_text(angle=0))
+
+p3<-ggplot(root1, aes(x=Treatment, y=RDWtotal, color=Treatment)) + 
+      geom_jitter(shape=1, width=0.15) + 
+      labs(x = "", y = "Total root dry weight (mg)") +
+      theme_bw()+
+      stat_summary(fun.data="mean_cl_boot", size=0.5)+
+      geom_signif(y_position=180, xmin=2, xmax=3, annotations="", linetype=2, tip_length = 0.02,
+                color="black")+
+      geom_signif(y_position=180, xmin=3, xmax=4, annotations="", linetype=2, tip_length = 0.02,
+                color="black")+
+      scale_color_manual(values=colors)+
+      theme(legend.position = "none",
+            axis.text=element_text(size=10, color="black"),
+            axis.title.y = element_text(margin=margin(t=0,b=0,r=10,l=0)),
+            axis.text.x=element_text(angle=0))+
+      scale_y_continuous(limits=c(0,300), breaks=c(0,50,100,150,200,250,300))
+
+p9b<-ggplot(stat.root_length, aes(x=Time, y=meanValue, color=Treatment))+
+  geom_ribbon(aes(ymin=lower, ymax=upper, fill=Treatment, alpha=Treatment), color=NA)+
+  geom_line()+
+  geom_point(shape=16)+
+  geom_vline(xintercept=10, linetype=3)+
+  theme_bw()+
+  theme(legend.title=element_blank(),
+        legend.position=c(0.36,0.79),
+        legend.text=element_text(size=9),
+        legend.key.size = unit(1, "line"),
+        legend.background = element_blank(),
+        axis.text=element_text(size=10, color="black"),
+        axis.title.y = element_text(margin=margin(r=10)),
+        axis.title.x = element_text(margin=margin(t=10)))+
+  ylab("Total root length (m)")+
+  xlab("Time (days)")+
+  scale_color_manual(values=colors)+
+  scale_fill_manual(values=colors)+
+  scale_alpha_manual(values=c(0.3,0.2,0.2,0.2,0.1))+
+  scale_x_continuous(breaks=unique(stat.root_length$Time),
+                     labels=c(2,4,"",9,"","",16,"","",23,"","",30,"","",37, "","",44))
+
+p11b<-ggplot(root.depth[root.depth$Time==44,], aes(x=Treatment, y=root_length, colour=Treatment)) +
+    geom_jitter(width=0.15, shape=1) + 
+    stat_summary(fun.data="mean_cl_boot")+
+    ylab("Total root length, day 44 (m)")+
+    xlab("")+ 
+    theme_bw()+
+    scale_color_manual(values=colors)+
+    theme(legend.position="none",
+          axis.text=element_text(size=10, color="black"),
+          axis.title.y = element_text(margin=margin(r=10)),
+          axis.title.x = element_text(margin=margin(t=10)))+
+    geom_signif(y_position=15.5, xmin=3, xmax=4, annotations="", linetype=2, tip_length = 0.02,
+                color="black")+
+    geom_signif(y_position=17.5, xmin=2, xmax=3, annotations="*", linetype=1, tip_length = 0.02,
+                color="black", textsize = 5)+
+    geom_signif(y_position=20, xmin=2, xmax=4, annotations="*", linetype=1, tip_length = 0.02,
+                color="black", textsize = 5)
+
+(figure2<-ggarrange(p2, p3, p9b, p11b, nrow=2, ncol=2, labels=c("(a)", "(b)", "(c)", "(d)"), font.label=list(size=14), hjust=-0.2, align="hv"))
+
+#ggsave("Figure2.tiff", figure2, dpi=1000, compression="lzw", width=18, height=16, units="cm")
+```
+
+### Fit linear mixed effect model for MRD
 
 ```{r Fit lmer to mean rooting depth data, message=FALSE, warning=FALSE}
 #Calculate number of days after first sowing (dafs)
@@ -781,7 +1211,9 @@ root.depth$dafs[root.depth$Treatment=="Sync2"]<-root.depth$dafs[root.depth$Treat
 root.depth1<-root.depth[root.depth$dafs>=0,]
 
 #Fit linear mixed-effect model(random slope and random intercept)
-model<-lmer(mrd~Treatment*dafs+(dafs|Rz), root.depth1)
+model<-lmer(mrd~Treatment*dafs+(dafs|Rz), root.depth1, 
+            control = lmerControl(optimizer ="Nelder_Mead"))
+
 summary(model)
 plot(model)
 
@@ -803,17 +1235,17 @@ plot(model)
 
 pred.mm <- ggpredict(model, terms = c("dafs [1,2,4,6,7,8,9,11,13,14,15,16,18,20,21,22,23,25,27,28,29,30,32,34,35,37,39,42,44]", "Treatment"))
 
-data.mm<-data.frame(dafs=pred.mm$x,
-                    Pred=pred.mm$predicted,
-                    Treatment=pred.mm$group,
-                    CIlow=pred.mm$conf.low,
-                    CIhigh=pred.mm$conf.high)
+data.mm.mrd<-data.frame(dafs=pred.mm$x,
+                        Pred=pred.mm$predicted,
+                        Treatment=pred.mm$group,
+                        CIlow=pred.mm$conf.low,
+                        CIhigh=pred.mm$conf.high)
 
-data.mm<-data.mm[-which(data.mm$Treatment=="Sync2" & data.mm$dafs>34),]
-data.mm<-data.mm[-which(data.mm$Treatment!="Sync2" & data.mm$dafs<2),]
+data.mm.mrd<-data.mm.mrd[-which(data.mm.mrd$Treatment=="Sync2" & data.mm.mrd$dafs>34),]
+data.mm.mrd<-data.mm.mrd[-which(data.mm.mrd$Treatment!="Sync2" & data.mm.mrd$dafs<2),]
 
 #Plot model fit
-(p13<-ggplot(data.mm) + 
+(p13<-ggplot(data.mm.mrd) + 
     geom_line(aes(x = dafs, y = Pred, group=Treatment, color=Treatment), size=1) +   
     geom_ribbon(aes(x = dafs, ymin = CIlow, ymax = CIhigh, fill=Treatment, alpha=Treatment)) +
     ylab("MRD (cm)")+
@@ -828,9 +1260,74 @@ data.mm<-data.mm[-which(data.mm$Treatment!="Sync2" & data.mm$dafs<2),]
     scale_alpha_manual(values=c(0.3,0.2,0.2,0.2,0.1)))
 ```
 
+### Fit linear mixed effect model for MaxRD
+
+```{r Fit lmer to maximum rooting depth data, message=FALSE, warning=FALSE}
+#For Sync1, L-first and F-first, only consider time points before reaching the bottom of the rhizoboxes (remove time points 35 to 44 for Sync1 and L-first, remove time points 42 and 44 for F-first)
+root.depth2<-root.depth1
+root.depth2<-rbind(root.depth2[root.depth2$Time<=32 & 
+                           (root.depth2$Treatment=="Sync1"|
+                              root.depth2$Treatment=="L-first"),],
+                   root.depth2[root.depth2$Time<=39 & root.depth2$Treatment=="F-first",],
+                   root.depth2[root.depth2$Treatment=="Sync2"|
+                              root.depth2$Treatment=="G-first",])
+
+#Fit linear mixed-effect model(random slope and random intercept)
+model<-lmer(maxrd~Treatment*dafs+(dafs|Rz), root.depth2, 
+            control = lmerControl(optimizer ="Nelder_Mead"))
+
+summary(model)
+plot(model)
+
+#Plot model fit
+#One line per rhizobox
+(p12a<-ggplot(root.depth2, aes(x=dafs, y=maxrd, color=Treatment, group=Rz))+
+  geom_line(data = cbind(root.depth2, pred = predict(model)), aes(y = pred), size = 1)+
+  geom_point(shape=16)+
+  theme_bw()+
+  theme(legend.title=element_blank(),
+        axis.text=element_text(size=10, color="black"),
+        axis.title.y = element_text(margin=margin(r=10)),
+        axis.title.x = element_text(margin=margin(t=10)))+
+  ylab("MaxRD (cm)")+
+  xlab("Days after sowing")+
+  scale_color_manual(values=colors)+
+  scale_fill_manual(values=colors)+
+  scale_x_continuous(limits=c(1, 44)))
+
+pred.mm <- ggpredict(model, terms = c("dafs [1,2,4,6,7,8,9,11,13,14,15,16,18,20,21,22,23,25,27,28,29,30,32,34,35,37,39,42,44]", "Treatment"))
+
+data.mm.maxrd<-data.frame(dafs=pred.mm$x,
+                          Pred=pred.mm$predicted,
+                          Treatment=pred.mm$group,
+                          CIlow=pred.mm$conf.low,
+                          CIhigh=pred.mm$conf.high)
+
+data.mm.maxrd<-data.mm.maxrd[-which(data.mm.maxrd$Treatment=="Sync2" & data.mm.maxrd$dafs>34),]
+data.mm.maxrd<-data.mm.maxrd[-which(data.mm.maxrd$Treatment!="Sync2" & data.mm.maxrd$dafs<2),]
+data.mm.maxrd<-data.mm.maxrd[-which(data.mm.maxrd$Treatment=="Sync1" & data.mm.maxrd$dafs>32),]
+data.mm.maxrd<-data.mm.maxrd[-which(data.mm.maxrd$Treatment=="L-first" & data.mm.maxrd$dafs>32),]
+data.mm.maxrd<-data.mm.maxrd[-which(data.mm.maxrd$Treatment=="F-first" & data.mm.maxrd$dafs>39),]
+
+#Plot model fit
+(p13a<-ggplot(data.mm.maxrd) + 
+    geom_line(aes(x = dafs, y = Pred, group=Treatment, color=Treatment), size=1) +   
+    geom_ribbon(aes(x = dafs, ymin = CIlow, ymax = CIhigh, fill=Treatment, alpha=Treatment)) +
+    ylab("MaxRD (cm)")+
+    xlab("Days after sowing")+ 
+    theme_bw()+
+    scale_color_manual(values=colors)+
+    scale_fill_manual(values=colors)+
+    theme(legend.title=element_blank(),
+          axis.text=element_text(size=10, color="black"),
+          axis.title.y = element_text(margin=margin(r=10)),
+          axis.title.x = element_text(margin=margin(t=10)))+
+    scale_alpha_manual(values=c(0.3,0.2,0.2,0.2,0.1)))
+```
+
 ### Correlation between MRD biomass and MRD images
 
-```{r Correlation MRD, message=FALSE, warning=FALSE}
+```{r Correlation MRD, fig.height=3.94, fig.width=3.94, message=FALSE, warning=FALSE}
 root1<-root1[order(root1$Rz),] #Contain MRD values calculated from root biomass
 root1$MRDrp<-root.depth[root.depth$Time==44,"mrd"]
 
@@ -838,41 +1335,37 @@ corrMRD<-data.frame(MRDb=root1$MRD,
                     MRDi=root1$MRDrp,
                     Treatment=root1$Treatment)
 
-(p14<-ggplot(corrMRD, aes(x=-MRDi, y=MRDb, colour=Treatment))+
-      geom_smooth(method="lm", colour="black")+
-      geom_point(shape=16)+
-      theme_bw()+
-      theme(legend.title = element_blank(),
-            axis.text=element_text(size=10, color="black"),
-            axis.title.y = element_text(margin=margin(r=10)),
-            axis.title.x = element_text(margin=margin(t=10)))+
-      scale_color_manual(values=colors)+
-      xlab("MRD - image analysis (cm)")+
-      ylab("MRD - biomass (cm)"))
-```
+cor.test(corrMRD$MRDb, -corrMRD$MRDi)
 
-### Create figure MRD over time
-
-```{r Figure MRD over time, message=FALSE, warning=FALSE, fig.height=2.36, fig.width=7.09}
 text.size<-8
 title.size<-9
 
-p14<-ggplot(corrMRD, aes(x=-MRDi, y=MRDb, colour=Treatment))+
+(p14<-ggplot(corrMRD, aes(x=-MRDi, y=MRDb, colour=Treatment))+
       geom_smooth(method="lm", colour="black", size=1)+
       geom_point(shape=16)+
       theme_bw()+
       theme(legend.title=element_blank(),
-            legend.position=c(0.85,0.24),
-            legend.text=element_text(size=7),
-            legend.key.size = unit(0.7, "line"),
+            legend.position=c(0.88,0.16),
+            legend.text=element_text(size=8),
+            legend.key.size = unit(0.8, "line"),
             legend.background = element_blank(),
+            legend.key = element_blank(),
             axis.text=element_text(size=text.size, color="black"),
             axis.title=element_text(size=title.size),
             axis.title.y = element_text(margin=margin(r=5)),
             axis.title.x = element_text(margin=margin(t=5)))+
       scale_color_manual(values=colors)+
       xlab("MRD - image analysis (cm)")+
-      ylab("MRD - biomass (cm)")
+      ylab("MRD - biomass (cm)"))
+
+#ggsave("FigureS1.tiff", p14, dpi=1000, compression="lzw", width=10, height=10, units="cm")
+```
+
+### Create figure MRD and MaxRD over time
+
+```{r Figure MRD and MaxRD over time, message=FALSE, warning=FALSE, fig.height=5.12, fig.width=6.3}
+text.size<-8
+title.size<-9
 
 p9<-ggplot(stat.mrd, aes(x=Time, y=meanValue, color=Treatment))+
   geom_ribbon(aes(ymin=lower, ymax=upper, fill=Treatment, alpha=Treatment), color=NA)+
@@ -881,28 +1374,69 @@ p9<-ggplot(stat.mrd, aes(x=Time, y=meanValue, color=Treatment))+
   geom_vline(xintercept=10, linetype=3)+
   theme_bw()+
   theme(legend.title=element_blank(),
-        legend.position=c(0.85,0.82),
-        legend.text=element_text(size=7),
-        legend.key.size = unit(0.7, "line"),
+        legend.position=c(0.87,0.78),
+        legend.text=element_text(size=8),
+        legend.key.size = unit(0.9, "line"),
         legend.background = element_blank(),
         axis.text=element_text(size=text.size, color="black"),
         axis.title=element_text(size=title.size),
         axis.title.y = element_text(margin=margin(r=5)),
-        axis.title.x = element_text(margin=margin(t=5)),
+        axis.title.x = element_blank(),
         panel.grid.minor = element_blank())+
   ylab("Mean rooting depth (cm)")+
-  xlab("Time (days)")+
+  xlab("")+
   scale_color_manual(values=colors)+
   scale_fill_manual(values=colors)+
   scale_x_continuous(breaks=unique(root.depth$Time),
                      labels=c(2,4,"",9,"","",16,"","",23,"","",30,"","",37, "","",44))+
   scale_alpha_manual(values=c(0.2,0.2,0.2,0.2,0.1))
 
-p13<-ggplot(data.mm) + 
+p13<-ggplot(data.mm.mrd) + 
     geom_line(aes(x = dafs, y = Pred, group=Treatment, color=Treatment), size=0.6) +
     geom_ribbon(aes(x = dafs, ymin = CIlow, ymax = CIhigh, fill=Treatment, alpha=Treatment), color=NA) +
-    ylab("Mean rooting depth (cm)")+
-    xlab("Days after sowing")+ 
+    ylab("")+
+    xlab("")+ 
+    theme_bw()+
+    scale_color_manual(values=colors)+
+    scale_fill_manual(values=colors)+
+    theme(legend.position="none",
+          axis.text=element_text(size=text.size, color="black"),
+          axis.title=element_text(size=title.size),
+          axis.title.y = element_text(margin=margin(r=5)),
+          axis.title.x = element_blank(),
+          panel.grid.minor = element_blank())+
+    scale_alpha_manual(values=c(0.2,0.2,0.2,0.2,0.1))+
+    scale_x_continuous(breaks=seq(0,44, by=4),
+                     labels=seq(0,44, by=4))+
+    scale_y_continuous(breaks=c(0,-4,-8,-12,-16), labels=c(0,-4,-8,-12,-16), limits=c(-16,0))
+
+p9a<-ggplot(stat.maxrd, aes(x=Time, y=meanValue, color=Treatment))+
+  geom_ribbon(aes(ymin=lower, ymax=upper, fill=Treatment, alpha=Treatment), color=NA)+
+  geom_line()+
+  geom_point(shape=16, size=1)+
+  geom_vline(xintercept=10, linetype=3)+
+  theme_bw()+
+  theme(legend.position = "none",
+        axis.text=element_text(size=text.size, color="black"),
+        axis.title=element_text(size=title.size),
+        axis.title.y = element_text(margin=margin(r=5)),
+        axis.title.x = element_text(margin=margin(t=5)),
+        panel.grid.minor = element_blank(),
+        plot.title = element_blank())+
+  ylab("Maximum rooting depth (cm)")+
+  xlab("Time (days)")+
+  scale_color_manual(values=colors)+
+  scale_fill_manual(values=colors)+
+  scale_x_continuous(breaks=unique(root.depth$Time),
+                     labels=c(2,4,"",9,"","",16,"","",23,"","",30,"","",37, "","",44))+
+  scale_alpha_manual(values=c(0.2,0.2,0.2,0.2,0.1))+
+  scale_y_continuous(breaks=c(0,-10,-20,-30,-40,-50,-60), labels=c(0,-10,-20,-30,-40,-50,-60), limits=c(-60,0))
+
+p13a<-ggplot(data.mm.maxrd) + 
+    geom_line(aes(x = dafs, y = Pred, group=Treatment, color=Treatment), size=0.6) +
+    geom_ribbon(aes(x = dafs, ymin = CIlow, ymax = CIhigh, fill=Treatment, alpha=Treatment), color=NA) +
+    ylab("")+
+    xlab("Number of days after sowing")+ 
     theme_bw()+
     scale_color_manual(values=colors)+
     scale_fill_manual(values=colors)+
@@ -911,13 +1445,15 @@ p13<-ggplot(data.mm) +
           axis.title=element_text(size=title.size),
           axis.title.y = element_text(margin=margin(r=5)),
           axis.title.x = element_text(margin=margin(t=5)),
-          panel.grid.minor = element_blank())+
+          panel.grid.minor = element_blank(),
+          plot.title = element_blank())+
     scale_alpha_manual(values=c(0.2,0.2,0.2,0.2,0.1))+
     scale_x_continuous(breaks=seq(0,44, by=4),
                      labels=seq(0,44, by=4))+
-    scale_y_continuous(breaks=c(0,-4,-8,-12,-16), labels=c(0,-4,-8,-12,-16), limits=c(-16,0))
+    scale_y_continuous(breaks=c(0,-10,-20,-30,-40,-50,-60), labels=c(0,-10,-20,-30,-40,-50,-60))
 
-(p15<-ggarrange(p14, p9, p13, nrow=1, ncol=3, labels=c("(a)", "(b)", "(c)"), font.label = list(size=11)))
+(p15<-ggarrange(p9, p13, p9a, p13a, nrow=2, ncol=2, labels=c("(a)", "(b)", "(c)", "(d)"), font.label = list(size=11), 
+               heights = c(0.93,1)))
 
-#ggsave("Figure5.tiff", p15, dpi=1000, compression="lzw", width=20, height=6, units="cm")
+#ggsave("Figure5.tiff", p15, dpi=1000, compression="lzw", width=16, height=13, units="cm")
 ```
